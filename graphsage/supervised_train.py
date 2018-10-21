@@ -78,7 +78,7 @@ def evaluate(sess, model, minibatch_iter, size=None):
     mic, mac = calc_f1(labels, node_outs_val[0])
     return node_outs_val[1], mic, mac, (time.time() - t_test)
 
-def log_dir():
+def get_log_dir():
     timestr = time.strftime("%y%m%d-%H%M%S")
     log_dir = FLAGS.base_log_dir + "/sup-" + FLAGS.train_prefix.split("/")[-2]
     log_dir += "/{timestamp:s}_{model:s}_{model_size:s}_{lr:0.4f}/".format(
@@ -246,12 +246,13 @@ def train(train_data, test_data=None):
     config.allow_soft_placement = True
 
     # Initialize session
+    log_dir = get_log_dir()
     sess = tf.Session(config=config)
     with tf.name_scope("train"):
         summary_train_loss = tf.summary.scalar('loss', model.loss)
     with tf.name_scope("val"):
         summary_val_loss = tf.summary.scalar('loss', model.loss)
-    summary_writer = tf.summary.FileWriter(log_dir(), sess.graph)
+    summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
 
     # Init variables
     sess.run(tf.global_variables_initializer(), feed_dict={adj_info_ph: minibatch.adj})
@@ -329,13 +330,13 @@ def train(train_data, test_data=None):
                   "f1_micro=", "{:.5f}".format(val_f1_mic),
                   "f1_macro=", "{:.5f}".format(val_f1_mac),
                   "time=", "{:.5f}".format(duration))
-    with open(log_dir() + "val_stats.txt", "w") as fp:
+    with open(log_dir + "val_stats.txt", "w") as fp:
         fp.write("loss={:.5f} f1_micro={:.5f} f1_macro={:.5f} time={:.5f}".
                 format(val_cost, val_f1_mic, val_f1_mac, duration))
 
     print("Writing test set stats to file (don't peak!)")
     val_cost, val_f1_mic, val_f1_mac, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size, test=True)
-    with open(log_dir() + "test_stats.txt", "w") as fp:
+    with open(log_dir + "test_stats.txt", "w") as fp:
         fp.write("loss={:.5f} f1_micro={:.5f} f1_macro={:.5f}".
                 format(val_cost, val_f1_mic, val_f1_mac))
 
