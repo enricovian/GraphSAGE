@@ -28,12 +28,12 @@ FLAGS = flags.FLAGS
 tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 #core params..
-flags.DEFINE_string('model', 'graphsage_mean', 'model names. See README for possible values.')  
+flags.DEFINE_string('model', 'graphsage_mean', 'model names. See README for possible values.')
 flags.DEFINE_float('learning_rate', 0.01, 'initial learning rate.')
 flags.DEFINE_string("model_size", "small", "Can be big or small; model specific def'ns")
 flags.DEFINE_string('train_prefix', '', 'prefix identifying training data. must be specified.')
 
-# left to default values in main experiments 
+# left to default values in main experiments
 flags.DEFINE_integer('epochs', 10, 'number of epochs to train.')
 flags.DEFINE_float('dropout', 0.0, 'dropout rate (1 - keep probability).')
 flags.DEFINE_float('weight_decay', 0.0, 'weight for l2 loss on embedding matrix.')
@@ -73,14 +73,16 @@ def calc_f1(y_true, y_pred):
 def evaluate(sess, model, minibatch_iter, size=None):
     t_test = time.time()
     feed_dict_val, labels = minibatch_iter.node_val_feed_dict(size)
-    node_outs_val = sess.run([model.preds, model.loss], 
+    node_outs_val = sess.run([model.preds, model.loss],
                         feed_dict=feed_dict_val)
     mic, mac = calc_f1(labels, node_outs_val[0])
     return node_outs_val[1], mic, mac, (time.time() - t_test)
 
 def log_dir():
+    timestr = time.strftime("%y%m%d-%H%M%S")
     log_dir = FLAGS.base_log_dir + "/sup-" + FLAGS.train_prefix.split("/")[-2]
-    log_dir += "/{model:s}_{model_size:s}_{lr:0.4f}/".format(
+    log_dir += "/{timestamp:s}_{model:s}_{model_size:s}_{lr:0.4f}/".format(
+            timestamp=timestr,
             model=FLAGS.model,
             model_size=FLAGS.model_size,
             lr=FLAGS.learning_rate)
@@ -98,7 +100,7 @@ def incremental_evaluate(sess, model, minibatch_iter, size, test=False):
     finished = False
     while not finished:
         feed_dict_val, batch_labels, finished, _  = minibatch_iter.incremental_node_val_feed_dict(size, iter_num, test=test)
-        node_outs_val = sess.run([model.preds, model.loss], 
+        node_outs_val = sess.run([model.preds, model.loss],
                          feed_dict=feed_dict_val)
         val_preds.append(node_outs_val[0])
         labels.append(batch_labels)
@@ -136,13 +138,13 @@ def train(train_data, test_data=None):
 
     context_pairs = train_data[3] if FLAGS.random_context else None
     placeholders = construct_placeholders(num_classes)
-    minibatch = NodeMinibatchIterator(G, 
+    minibatch = NodeMinibatchIterator(G,
             id_map,
-            placeholders, 
+            placeholders,
             class_map,
             num_classes,
             batch_size=FLAGS.batch_size,
-            max_degree=FLAGS.max_degree, 
+            max_degree=FLAGS.max_degree,
             context_pairs = context_pairs)
     adj_info_ph = tf.placeholder(tf.int32, shape=minibatch.adj.shape)
     adj_info = tf.Variable(adj_info_ph, trainable=False, name="adj_info")
@@ -160,11 +162,11 @@ def train(train_data, test_data=None):
         else:
             layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1)]
 
-        model = SupervisedGraphsage(num_classes, placeholders, 
+        model = SupervisedGraphsage(num_classes, placeholders,
                                      features,
                                      adj_info,
                                      minibatch.deg,
-                                     layer_infos, 
+                                     layer_infos,
                                      model_size=FLAGS.model_size,
                                      sigmoid_loss = FLAGS.sigmoid,
                                      identity_dim = FLAGS.identity_dim,
@@ -175,11 +177,11 @@ def train(train_data, test_data=None):
         layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, 2*FLAGS.dim_1),
                             SAGEInfo("node", sampler, FLAGS.samples_2, 2*FLAGS.dim_2)]
 
-        model = SupervisedGraphsage(num_classes, placeholders, 
+        model = SupervisedGraphsage(num_classes, placeholders,
                                      features,
                                      adj_info,
                                      minibatch.deg,
-                                     layer_infos=layer_infos, 
+                                     layer_infos=layer_infos,
                                      aggregator_type="gcn",
                                      model_size=FLAGS.model_size,
                                      concat=False,
@@ -192,11 +194,11 @@ def train(train_data, test_data=None):
         layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1),
                             SAGEInfo("node", sampler, FLAGS.samples_2, FLAGS.dim_2)]
 
-        model = SupervisedGraphsage(num_classes, placeholders, 
+        model = SupervisedGraphsage(num_classes, placeholders,
                                      features,
                                      adj_info,
                                      minibatch.deg,
-                                     layer_infos=layer_infos, 
+                                     layer_infos=layer_infos,
                                      aggregator_type="seq",
                                      model_size=FLAGS.model_size,
                                      sigmoid_loss = FLAGS.sigmoid,
@@ -208,11 +210,11 @@ def train(train_data, test_data=None):
         layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1),
                             SAGEInfo("node", sampler, FLAGS.samples_2, FLAGS.dim_2)]
 
-        model = SupervisedGraphsage(num_classes, placeholders, 
+        model = SupervisedGraphsage(num_classes, placeholders,
                                     features,
                                     adj_info,
                                     minibatch.deg,
-                                     layer_infos=layer_infos, 
+                                     layer_infos=layer_infos,
                                      aggregator_type="maxpool",
                                      model_size=FLAGS.model_size,
                                      sigmoid_loss = FLAGS.sigmoid,
@@ -224,11 +226,11 @@ def train(train_data, test_data=None):
         layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1),
                             SAGEInfo("node", sampler, FLAGS.samples_2, FLAGS.dim_2)]
 
-        model = SupervisedGraphsage(num_classes, placeholders, 
+        model = SupervisedGraphsage(num_classes, placeholders,
                                     features,
                                     adj_info,
                                     minibatch.deg,
-                                     layer_infos=layer_infos, 
+                                     layer_infos=layer_infos,
                                      aggregator_type="meanpool",
                                      model_size=FLAGS.model_size,
                                      sigmoid_loss = FLAGS.sigmoid,
@@ -242,25 +244,28 @@ def train(train_data, test_data=None):
     config.gpu_options.allow_growth = True
     #config.gpu_options.per_process_gpu_memory_fraction = GPU_MEM_FRACTION
     config.allow_soft_placement = True
-    
+
     # Initialize session
     sess = tf.Session(config=config)
-    merged = tf.summary.merge_all()
+    with tf.name_scope("train"):
+        summary_train_loss = tf.summary.scalar('loss', model.loss)
+    with tf.name_scope("val"):
+        summary_val_loss = tf.summary.scalar('loss', model.loss)
     summary_writer = tf.summary.FileWriter(log_dir(), sess.graph)
-     
+
     # Init variables
     sess.run(tf.global_variables_initializer(), feed_dict={adj_info_ph: minibatch.adj})
-    
+
     # Train model
-    
+
     total_steps = 0
     avg_time = 0.0
     epoch_val_costs = []
 
     train_adj_info = tf.assign(adj_info, minibatch.adj)
     val_adj_info = tf.assign(adj_info, minibatch.test_adj)
-    for epoch in range(FLAGS.epochs): 
-        minibatch.shuffle() 
+    for epoch in range(FLAGS.epochs):
+        minibatch.shuffle()
 
         iter = 0
         print('Epoch: %04d' % (epoch + 1))
@@ -270,9 +275,9 @@ def train(train_data, test_data=None):
             feed_dict, labels = minibatch.next_minibatch_feed_dict()
             feed_dict.update({placeholders['dropout']: FLAGS.dropout})
 
-            t = time.time()
             # Training step
-            outs = sess.run([merged, model.opt_op, model.loss, model.preds], feed_dict=feed_dict)
+            t = time.time()
+            outs = sess.run([summary_train_loss, model.opt_op, model.loss, model.preds], feed_dict=feed_dict)
             train_cost = outs[2]
 
             if iter % FLAGS.validate_iter == 0:
@@ -282,26 +287,31 @@ def train(train_data, test_data=None):
                     val_cost, val_f1_mic, val_f1_mac, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
                 else:
                     val_cost, val_f1_mic, val_f1_mac, duration = evaluate(sess, model, minibatch, FLAGS.validate_batch_size)
+
+                # log validation summary
+                summary_val = sess.run(summary_val_loss, feed_dict=feed_dict)
+                summary_writer.add_summary(summary_val, total_steps)
+
                 sess.run(train_adj_info.op)
                 epoch_val_costs[-1] += val_cost
 
             if total_steps % FLAGS.print_every == 0:
                 summary_writer.add_summary(outs[0], total_steps)
-    
+
             # Print results
             avg_time = (avg_time * total_steps + time.time() - t) / (total_steps + 1)
 
             if total_steps % FLAGS.print_every == 0:
                 train_f1_mic, train_f1_mac = calc_f1(labels, outs[-1])
-                print("Iter:", '%04d' % iter, 
+                print("Iter:", '%04d' % iter,
                       "train_loss=", "{:.5f}".format(train_cost),
-                      "train_f1_mic=", "{:.5f}".format(train_f1_mic), 
-                      "train_f1_mac=", "{:.5f}".format(train_f1_mac), 
+                      "train_f1_mic=", "{:.5f}".format(train_f1_mic),
+                      "train_f1_mac=", "{:.5f}".format(train_f1_mac),
                       "val_loss=", "{:.5f}".format(val_cost),
-                      "val_f1_mic=", "{:.5f}".format(val_f1_mic), 
-                      "val_f1_mac=", "{:.5f}".format(val_f1_mac), 
+                      "val_f1_mic=", "{:.5f}".format(val_f1_mic),
+                      "val_f1_mac=", "{:.5f}".format(val_f1_mac),
                       "time=", "{:.5f}".format(avg_time))
- 
+
             iter += 1
             total_steps += 1
 
@@ -310,7 +320,7 @@ def train(train_data, test_data=None):
 
         if total_steps > FLAGS.max_total_steps:
                 break
-    
+
     print("Optimization Finished!")
     sess.run(val_adj_info.op)
     val_cost, val_f1_mic, val_f1_mac, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)

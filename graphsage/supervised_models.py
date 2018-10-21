@@ -12,7 +12,7 @@ class SupervisedGraphsage(models.SampleAndAggregate):
 
     def __init__(self, num_classes,
             placeholders, features, adj, degrees,
-            layer_infos, concat=True, aggregator_type="mean", 
+            layer_infos, concat=True, aggregator_type="mean",
             model_size="small", sigmoid_loss=False, identity_dim=0,
                 **kwargs):
         '''
@@ -20,8 +20,8 @@ class SupervisedGraphsage(models.SampleAndAggregate):
             - placeholders: Stanford TensorFlow placeholder object.
             - features: Numpy array with node features.
             - adj: Numpy array with adjacency lists (padded with random re-samples)
-            - degrees: Numpy array with node degrees. 
-            - layer_infos: List of SAGEInfo namedtuples that describe the parameters of all 
+            - degrees: Numpy array with node degrees.
+            - layer_infos: List of SAGEInfo namedtuples that describe the parameters of all
                    the recursive layers. See SAGEInfo definition above.
             - concat: whether to concatenate during recursive iterations
             - aggregator_type: how to aggregate neighbor information
@@ -52,7 +52,7 @@ class SupervisedGraphsage(models.SampleAndAggregate):
            self.embeds = tf.get_variable("node_embeddings", [adj.get_shape().as_list()[0], identity_dim])
         else:
            self.embeds = None
-        if features is None: 
+        if features is None:
             if identity_dim == 0:
                 raise Exception("Must have a positive value for identity feature dimension if no input features given.")
             self.features = self.embeds
@@ -85,7 +85,7 @@ class SupervisedGraphsage(models.SampleAndAggregate):
         self.outputs1 = tf.nn.l2_normalize(self.outputs1, 1)
 
         dim_mult = 2 if self.concat else 1
-        self.node_pred = layers.Dense(dim_mult*self.dims[-1], self.num_classes, 
+        self.node_pred = layers.Dense(dim_mult*self.dims[-1], self.num_classes,
                 dropout=self.placeholders['dropout'],
                 act=lambda x : x)
         # TF graph management
@@ -93,7 +93,7 @@ class SupervisedGraphsage(models.SampleAndAggregate):
 
         self._loss()
         grads_and_vars = self.optimizer.compute_gradients(self.loss)
-        clipped_grads_and_vars = [(tf.clip_by_value(grad, -5.0, 5.0) if grad is not None else None, var) 
+        clipped_grads_and_vars = [(tf.clip_by_value(grad, -5.0, 5.0) if grad is not None else None, var)
                 for grad, var in grads_and_vars]
         self.grad, _ = clipped_grads_and_vars[0]
         self.opt_op = self.optimizer.apply_gradients(clipped_grads_and_vars)
@@ -106,7 +106,7 @@ class SupervisedGraphsage(models.SampleAndAggregate):
                 self.loss += FLAGS.weight_decay * tf.nn.l2_loss(var)
         for var in self.node_pred.vars.values():
             self.loss += FLAGS.weight_decay * tf.nn.l2_loss(var)
-       
+
         # classification loss
         if self.sigmoid_loss:
             self.loss += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
@@ -116,7 +116,6 @@ class SupervisedGraphsage(models.SampleAndAggregate):
             self.loss += tf.reduce_mean(tf.nn.softmax_cross_entropy_with_logits(
                     logits=self.node_preds,
                     labels=self.placeholders['labels']))
-
         tf.summary.scalar('loss', self.loss)
 
     def predict(self):
