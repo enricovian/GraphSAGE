@@ -369,6 +369,8 @@ class SupervisedEdgeMinibatchIterator(object):
 
         print(len([n for n in G.nodes() if not G.node[n]['test'] and not G.node[n]['val']]), 'train nodes')
         print(len([n for n in G.nodes() if G.node[n]['test'] or G.node[n]['val']]), 'test nodes')
+        print(len([n for n in G.nodes() if G.node[n]['labeled']]), 'labeled nodes')
+        print(len([n for n in G.nodes() if not G.node[n]['labeled']]), 'unlabeled nodes')
         self.val_set_size = len(self.val_edges)
 
     def _n2v_prune(self, edges):

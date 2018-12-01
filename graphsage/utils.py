@@ -40,14 +40,26 @@ def load_data(prefix, normalize=True, load_walks=False):
 
     class_map = {conversion(k):lab_conversion(v) for k,v in class_map.items()}
 
-    ## Remove all nodes that do not have val/test annotations
-    ## (necessary because of networkx weirdness with the Reddit data)
+    # Preprocessing for nodes
     broken_count = 0
+    labeled = 0
+    unlabeled = 0
     for node in G.nodes():
+        ## Remove all nodes that do not have val/test annotations
+        ## (necessary because of networkx weirdness with the Reddit data)
         if not 'val' in G.node[node] or not 'test' in G.node[node]:
             G.remove_node(node)
             broken_count += 1
+        else:
+            ## Mark nodes with at least a class assigned as 'labeled'
+            if np.nonzero(class_map[node])[0].size > 0: # check whether a node belongs to at least one class
+                G.node[node]['labeled'] = True
+                labeled += 1
+            else:
+                G.node[node]['labeled'] = False
+                unlabeled += 1
     print("Removed {:d} nodes that lacked proper annotations due to networkx versioning issues".format(broken_count))
+    print("Marked {:d} nodes as labeled and {:d} as unlabeled".format(labeled, unlabeled))
 
     ## Make sure the graph has edge train_removed annotations
     ## (some datasets might already have this..)
@@ -66,7 +78,7 @@ def load_data(prefix, normalize=True, load_walks=False):
         scaler = StandardScaler()
         scaler.fit(train_feats)
         feats = scaler.transform(feats)
-    
+
     if load_walks:
         with open(prefix + "-walks.txt") as fp:
             for line in fp:
