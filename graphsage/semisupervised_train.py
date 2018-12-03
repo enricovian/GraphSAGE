@@ -51,6 +51,7 @@ flags.DEFINE_integer('neg_sample_size', 20, 'number of negative samples')
 flags.DEFINE_integer('batch_size', 512, 'minibatch size.')
 flags.DEFINE_boolean('sigmoid', False, 'whether to use sigmoid loss')
 flags.DEFINE_integer('identity_dim', 0, 'Set to positive value to use identity embedding features of that dimension. Default 0.')
+flags.DEFINE_float('supervised_ratio', 0.5, 'Probability to perform a supervised training iteration instead of an unsupervised one.')
 
 #logging, saving, validation settings etc.
 flags.DEFINE_boolean('save_embeddings', True, 'whether to save embeddings for all nodes after training')
@@ -83,7 +84,8 @@ def get_log_dir():
 def evaluate(sess, model, minibatch_iter, size=None, supervised=False):
     t_test = time.time()
     loss = model.loss_sup if supervised else model.loss_unsup
-    feed_dict_val, _ = minibatch_iter.val_feed_dict(size)
+    feed_dict_val, _ = (minibatch_iter.val_feed_dict_sup(size) if supervised else
+        minibatch_iter.val_feed_dict(size))
     # feed_dict_val.update({placeholders['supervised']: False}) # TEMP
     outs_val = sess.run([loss, model.ranks, model.mrr],
                         feed_dict=feed_dict_val)
@@ -97,7 +99,8 @@ def incremental_evaluate(sess, model, minibatch_iter, size, supervised=False):
     iter_num = 0
     loss = model.loss_sup if supervised else model.loss_unsup
     while not finished:
-        feed_dict_val, finished, _ = minibatch_iter.incremental_val_feed_dict(size, iter_num)
+        feed_dict_val, finished, _ = (minibatch_iter.incremental_val_feed_dict_sup(size, iter_num) if supervised else
+            minibatch_iter.incremental_val_feed_dict(size, iter_num))
         iter_num += 1
         # feed_dict_val.update({placeholders['supervised']: False}) # TEMP
         outs_val = sess.run([loss, model.ranks, model.mrr],
@@ -307,9 +310,11 @@ def train(train_data, test_data=None):
         print('Epoch: %04d' % (epoch + 1))
         epoch_val_costs.append(0)
 
-        while not minibatch.end():
+        while not (minibatch.end() and minibatch.end_sup()):
             # define supervised or unsupervised training
             supervised = False
+            if (not minibatch.end_sup() and np.random.rand() < FLAGS.supervised_ratio):
+                supervised = True
             if supervised:
                 loss = model.loss_sup
                 optimizer = model.sup_opt_op
@@ -317,7 +322,8 @@ def train(train_data, test_data=None):
                 loss = model.loss_unsup
                 optimizer = model.unsup_opt_op
             # Construct feed dictionary
-            feed_dict, labels = minibatch.next_minibatch_feed_dict()
+            feed_dict, labels = (minibatch.next_minibatch_feed_dict_sup() if supervised else
+                minibatch.next_minibatch_feed_dict())
             feed_dict.update({placeholders['dropout']: FLAGS.dropout}) # TEMP: change placeholder
 
             # Training step
@@ -365,7 +371,8 @@ def train(train_data, test_data=None):
 
             # Print results
             if total_steps % FLAGS.print_every == 0:
-                print("Iter:", '%04d' % iter,
+                print(("[S]" if supervised else "[U]"),
+                      "Iter:", '%04d' % iter,
                       "train_loss=", "{:.5f}".format(train_cost),
                       "train_mrr=", "{:.5f}".format(train_mrr),
                       "val_loss=", "{:.5f}".format(val_cost),

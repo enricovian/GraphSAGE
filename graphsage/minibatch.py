@@ -324,6 +324,12 @@ class SupervisedEdgeMinibatchIterator(object):
     """ This minibatch iterator iterates over batches of sampled edges or
     random pairs of co-occuring edges.
 
+    NB: the functions without suffix '_sup' or '_unsup' consider all nodes
+    regardless of the labelling (eventually returning an all-0 class list for
+    unlabeled entries).
+    Instead '_sup' methods consider exclusively labeled nodes and '_unsup'
+    methods exclusively unlabeled ones.
+
     G -- networkx graph
     id2idx -- dict mapping node ids to index in feature tensor
     placeholders -- tensorflow placeholders object
@@ -347,30 +353,43 @@ class SupervisedEdgeMinibatchIterator(object):
         self.batch_size = batch_size
         self.max_degree = max_degree
         self.batch_num = 0
+        self.batch_num_sup = 0
+        self.batch_num_unsup = 0
         self.label_map = label_map
         self.num_classes = num_classes
+        self.labeled_nodes = [n for n in G.nodes() if G.node[n]['labeled']]
+        self.unlabeled_nodes = [n for n in G.nodes() if not G.node[n]['labeled']]
 
         self.nodes = np.random.permutation(G.nodes())
         self.adj, self.deg = self.construct_adj()
         self.test_adj = self.construct_test_adj()
+
         if context_pairs is None:
             edges = G.edges()
         else:
             edges = context_pairs
         self.train_edges = self.edges = np.random.permutation(edges)
-        if not n2v_retrain:
-            self.train_edges = self._remove_isolated(self.train_edges)
-            self.val_edges = [e for e in G.edges() if G[e[0]][e[1]]['train_removed']]
-        else:
-            if fixed_n2v:
-                self.train_edges = self.val_edges = self._n2v_prune(self.edges)
-            else:
-                self.train_edges = self.val_edges = self.edges
+        self.train_edges, missing = self._remove_isolated(self.train_edges) # remove edges referring to missing nodes
+        print("Unexpected missing nodes:", missing)
+        self.train_edges_sup = [edge for edge in self.train_edges if G.node[edge[0]]['labeled']]
+        self.train_edges_unsup = [edge for edge in self.train_edges if not G.node[edge[0]]['labeled']]
+        # mark the edges referring to a test node as 'train_removed'
+        self.val_edges = [e for e in G.edges() if G[e[0]][e[1]]['train_removed']]
+        self.val_edges_sup = [edge for edge in self.val_edges if G.node[edge[0]]['labeled']]
+        self.val_edges_unsup = [edge for edge in self.val_edges if not G.node[edge[0]]['labeled']]
+        print(len(self.train_edges),'train edges -',len(self.train_edges_sup),
+            'supervised and',len(self.train_edges_unsup),'unsupervised')
+        print(len(self.val_edges),'validation edges -',len(self.val_edges_sup),
+            'supervised and',len(self.val_edges_unsup),'unsupervised')
 
-        print(len([n for n in G.nodes() if not G.node[n]['test'] and not G.node[n]['val']]), 'train nodes')
-        print(len([n for n in G.nodes() if G.node[n]['test'] or G.node[n]['val']]), 'test nodes')
-        print(len([n for n in G.nodes() if G.node[n]['labeled']]), 'labeled nodes')
-        print(len([n for n in G.nodes() if not G.node[n]['labeled']]), 'unlabeled nodes')
+        train_nodes = [n for n in G.nodes() if not G.node[n]['test'] and not G.node[n]['val']]
+        test_nodes = [n for n in G.nodes() if G.node[n]['test'] or G.node[n]['val']]
+        print(len(train_nodes), 'train nodes -',
+            len([n for n in train_nodes if G.node[n]['labeled']]), 'labeled and',
+            len([n for n in train_nodes if not G.node[n]['labeled']]), 'unlabeled')
+        print(len(test_nodes), 'test nodes -',
+            len([n for n in test_nodes if G.node[n]['labeled']]), 'labeled and',
+            len([n for n in test_nodes if not G.node[n]['labeled']]), 'unlabeled')
         self.val_set_size = len(self.val_edges)
 
     def _n2v_prune(self, edges):
@@ -390,8 +409,7 @@ class SupervisedEdgeMinibatchIterator(object):
                 continue
             else:
                 new_edge_list.append((n1,n2))
-        print("Unexpected missing:", missing)
-        return new_edge_list
+        return new_edge_list, missing
 
     def _make_label_vec(self, node):
         label = self.label_map[node]
@@ -440,6 +458,12 @@ class SupervisedEdgeMinibatchIterator(object):
     def end(self):
         return self.batch_num * self.batch_size >= len(self.train_edges)
 
+    def end_sup(self):
+        return self.batch_num_sup * self.batch_size >= len(self.train_edges_sup)
+
+    def end_unsup(self):
+        return self.batch_num_unsup * self.batch_size >= len(self.train_edges_unsup)
+
     def batch_feed_dict(self, batch_edges):
         batch1 = []
         batch2 = []
@@ -463,6 +487,20 @@ class SupervisedEdgeMinibatchIterator(object):
         batch_edges = self.train_edges[start_idx : end_idx]
         return self.batch_feed_dict(batch_edges)
 
+    def next_minibatch_feed_dict_sup(self):
+        start_idx = self.batch_num_sup * self.batch_size
+        self.batch_num_sup += 1
+        end_idx = min(start_idx + self.batch_size, len(self.train_edges_sup))
+        batch_edges = self.train_edges_sup[start_idx : end_idx]
+        return self.batch_feed_dict(batch_edges)
+
+    def next_minibatch_feed_dict_unsup(self):
+        start_idx = self.batch_num_unsup * self.batch_size
+        self.batch_num_unsup += 1
+        end_idx = min(start_idx + self.batch_size, len(self.train_edges_unsup))
+        batch_edges = self.train_edges_unsup[start_idx : end_idx]
+        return self.batch_feed_dict(batch_edges)
+
     def num_training_batches(self):
         return len(self.train_edges) // self.batch_size + 1
 
@@ -475,11 +513,41 @@ class SupervisedEdgeMinibatchIterator(object):
             val_edges = [edge_list[i] for i in ind[:min(size, len(ind))]]
             return self.batch_feed_dict(val_edges)
 
+    def val_feed_dict_sup(self, size=None):
+        edge_list = self.val_edges_sup
+        if size is None:
+            return self.batch_feed_dict(edge_list)
+        else:
+            ind = np.random.permutation(len(edge_list))
+            val_edges = [edge_list[i] for i in ind[:min(size, len(ind))]]
+            return self.batch_feed_dict(val_edges)
+
+    def val_feed_dict_unsup(self, size=None):
+        edge_list = self.val_edges_unsup
+        if size is None:
+            return self.batch_feed_dict(edge_list)
+        else:
+            ind = np.random.permutation(len(edge_list))
+            val_edges = [edge_list[i] for i in ind[:min(size, len(ind))]]
+            return self.batch_feed_dict(val_edges)
+
     def incremental_val_feed_dict(self, size, iter_num):
         edge_list = self.val_edges
         val_edges = edge_list[iter_num*size:min((iter_num+1)*size,
             len(edge_list))]
         return self.batch_feed_dict(val_edges), (iter_num+1)*size >= len(self.val_edges), val_edges
+
+    def incremental_val_feed_dict_sup(self, size, iter_num):
+        edge_list = self.val_edges_sup
+        val_edges = edge_list[iter_num*size:min((iter_num+1)*size,
+            len(edge_list))]
+        return self.batch_feed_dict(val_edges), (iter_num+1)*size >= len(self.val_edges_sup), val_edges
+
+    def incremental_val_feed_dict_unsup(self, size, iter_num):
+        edge_list = self.val_edges_unsup
+        val_edges = edge_list[iter_num*size:min((iter_num+1)*size,
+            len(edge_list))]
+        return self.batch_feed_dict(val_edges), (iter_num+1)*size >= len(self.val_edges_unsup), val_edges
 
     def incremental_embed_feed_dict(self, size, iter_num):
         node_list = self.nodes
@@ -504,5 +572,7 @@ class SupervisedEdgeMinibatchIterator(object):
             Also reset the batch number.
         """
         self.train_edges = np.random.permutation(self.train_edges)
+        self.train_edges_sup = np.random.permutation(self.train_edges_sup)
+        self.train_edges_unsup = np.random.permutation(self.train_edges_unsup)
         self.nodes = np.random.permutation(self.nodes)
-        self.batch_num = 0
+        self.batch_num = self.batch_num_sup = self.batch_num_unsup = 0
