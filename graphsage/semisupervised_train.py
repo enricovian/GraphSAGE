@@ -86,28 +86,32 @@ def evaluate(sess, model, minibatch_iter, size=None, supervised=False):
     loss = model.loss_sup if supervised else model.loss_unsup
     feed_dict_val, _ = (minibatch_iter.val_feed_dict_sup(size) if supervised else
         minibatch_iter.val_feed_dict(size))
-    # feed_dict_val.update({placeholders['supervised']: False}) # TEMP
     outs_val = sess.run([loss, model.ranks, model.mrr],
                         feed_dict=feed_dict_val)
     return outs_val[0], outs_val[1], outs_val[2], (time.time() - t_test)
 
-def incremental_evaluate(sess, model, minibatch_iter, size, supervised=False):
+# evaluate the whole validation set
+def incremental_evaluate(sess, model, minibatch_iter, size):
     t_test = time.time()
     finished = False
-    val_losses = []
+    val_losses_sup = []
+    val_losses_unsup = []
     val_mrrs = []
     iter_num = 0
-    loss = model.loss_sup if supervised else model.loss_unsup
     while not finished:
-        feed_dict_val, finished, _ = (minibatch_iter.incremental_val_feed_dict_sup(size, iter_num) if supervised else
-            minibatch_iter.incremental_val_feed_dict(size, iter_num))
+        feed_dict_val, _, finished, _ = minibatch_iter.incremental_val_feed_dict_sup(size, iter_num)
         iter_num += 1
-        # feed_dict_val.update({placeholders['supervised']: False}) # TEMP
-        outs_val = sess.run([loss, model.ranks, model.mrr],
+        outs_val = sess.run([model.loss_sup], feed_dict=feed_dict_val)
+        val_losses_sup.append(outs_val[0])
+    finished = False
+    while not finished:
+        feed_dict_val, _, finished, _ = minibatch_iter.incremental_val_feed_dict(size, iter_num)
+        iter_num += 1
+        outs_val = sess.run([model.loss_unsup, model.ranks, model.mrr],
                             feed_dict=feed_dict_val)
-        val_losses.append(outs_val[0])
+        val_losses_unsup.append(outs_val[0])
         val_mrrs.append(outs_val[2])
-    return np.mean(val_losses), np.mean(val_mrrs), (time.time() - t_test)
+    return np.mean(val_losses_sup), np.mean(val_losses_unsup), np.mean(val_mrrs), (time.time() - t_test)
 
 def construct_placeholders(num_classes):
     # Define placeholders
@@ -123,6 +127,29 @@ def construct_placeholders(num_classes):
         'supervised' : tf.placeholder(tf.bool, name='supervised')
     }
     return placeholders
+
+def save_val_embeddings(sess, model, minibatch_iter, size, out_dir, mod=""):
+    val_embeddings = []
+    finished = False
+    seen = set([])
+    nodes = []
+    iter_num = 0
+    name = "val"
+    while not finished:
+        feed_dict_val, _, finished, edges = minibatch_iter.incremental_embed_feed_dict(size, iter_num)
+        iter_num += 1
+        outs_val = sess.run(model.outputs, feed_dict=feed_dict_val)
+        for i, edge in enumerate(edges):
+            if not edge[0] in seen:
+                val_embeddings.append(outs_val[i,:])
+                nodes.append(edge[0])
+                seen.add(edge[0])
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+    val_embeddings = np.vstack(val_embeddings)
+    np.save(out_dir + name + mod + ".npy",  val_embeddings)
+    with open(out_dir + name + mod + ".txt", "w") as fp:
+        fp.write("\n".join(map(str,nodes)))
 
 def train(train_data, test_data=None):
 
@@ -390,8 +417,24 @@ def train(train_data, test_data=None):
             break
 
     print("Optimization Finished!")
-    # TODO: Save embeddings
 
+    # compute validation results and produce an output file
+    sess.run(val_adj_info.op)
+    val_cost_sup, val_cost_unsup, val_mrr, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
+    print("Full validation stats:\n",
+          "\tsupervised loss=", "{:.5f}".format(val_cost_sup), "\n",
+          "\tunsupervised loss=", "{:.5f}".format(val_cost_unsup), "\n",
+          "\tmrr=", "{:.5f}".format(val_mrr), "\n",
+          "\tevaluation time=", "{:.5f}".format(duration))
+    with open(log_dir + "val_stats.txt", "w") as fp:
+        fp.write("supervised_loss={:.5f}, unsupervised_loss={:.5f}, mrr={:.5f}, evaluation_time={:.5f}".
+            format(val_cost_sup, val_cost_unsup, val_mrr, duration))
+    # TODO: Perform evaluation on test set
+
+    if FLAGS.save_embeddings:
+        print("Saving embeddings..")
+        sess.run(val_adj_info.op)
+        save_val_embeddings(sess, model, minibatch, FLAGS.validate_batch_size, log_dir)
 
 def main(argv=None):
     print("Loading training data..")

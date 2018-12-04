@@ -535,26 +535,30 @@ class SupervisedEdgeMinibatchIterator(object):
         edge_list = self.val_edges
         val_edges = edge_list[iter_num*size:min((iter_num+1)*size,
             len(edge_list))]
-        return self.batch_feed_dict(val_edges), (iter_num+1)*size >= len(self.val_edges), val_edges
+        feed_dict, labels = self.batch_feed_dict(val_edges)
+        return feed_dict, labels, (iter_num+1)*size >= len(self.val_edges), val_edges
 
     def incremental_val_feed_dict_sup(self, size, iter_num):
         edge_list = self.val_edges_sup
         val_edges = edge_list[iter_num*size:min((iter_num+1)*size,
             len(edge_list))]
-        return self.batch_feed_dict(val_edges), (iter_num+1)*size >= len(self.val_edges_sup), val_edges
+        feed_dict, labels = self.batch_feed_dict(val_edges)
+        return feed_dict, labels, (iter_num+1)*size >= len(self.val_edges_sup), val_edges
 
     def incremental_val_feed_dict_unsup(self, size, iter_num):
         edge_list = self.val_edges_unsup
         val_edges = edge_list[iter_num*size:min((iter_num+1)*size,
             len(edge_list))]
-        return self.batch_feed_dict(val_edges), (iter_num+1)*size >= len(self.val_edges_unsup), val_edges
+        feed_dict, labels = self.batch_feed_dict(val_edges)
+        return feed_dict, labels, (iter_num+1)*size >= len(self.val_edges_unsup), val_edges
 
     def incremental_embed_feed_dict(self, size, iter_num):
         node_list = self.nodes
         val_nodes = node_list[iter_num*size:min((iter_num+1)*size,
             len(node_list))]
         val_edges = [(n,n) for n in val_nodes]
-        return self.batch_feed_dict(val_edges), (iter_num+1)*size >= len(node_list), val_edges
+        feed_dict, labels = self.batch_feed_dict(val_edges)
+        return feed_dict, labels, (iter_num+1)*size >= len(node_list), val_edges
 
     def label_val(self):
         train_edges = []
