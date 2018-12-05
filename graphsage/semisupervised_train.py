@@ -340,7 +340,7 @@ def train(train_data, test_data=None):
         while not (minibatch.end() and minibatch.end_sup()):
             # define supervised or unsupervised training
             supervised = False
-            if (not minibatch.end_sup() and np.random.rand() < FLAGS.supervised_ratio):
+            if (minibatch.end() or (not minibatch.end_sup() and (np.random.rand() < FLAGS.supervised_ratio))):
                 supervised = True
             if supervised:
                 loss = model.loss_sup
