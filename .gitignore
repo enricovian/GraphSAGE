@@ -13,6 +13,8 @@ gcn_back
 *.out
 *.bbl
 *.synctex.gz
+data/
+logs/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -106,4 +108,3 @@ ENV/
 
 *.pickle
 *.pkl
-
