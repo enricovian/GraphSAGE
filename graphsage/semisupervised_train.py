@@ -305,8 +305,10 @@ def train(train_data, test_data=None):
         summary_train_loss_sup = tf.summary.scalar('supervised loss', model.loss_sup)
         summary_train_loss_unsup = tf.summary.scalar('unsupervised loss', model.loss_unsup)
         summary_train_mrr = tf.summary.scalar('mrr', model.mrr)
-        summary_train = tf.summary.merge([
+        summary_train_sup = tf.summary.merge([
             summary_train_loss_sup,
+            summary_train_mrr])
+        summary_train_unsup = tf.summary.merge([
             summary_train_loss_unsup,
             summary_train_mrr])
     with tf.name_scope("val"):
@@ -356,7 +358,7 @@ def train(train_data, test_data=None):
             # Training step
             t = time.time()
             summary, _, train_cost, train_ranks, _, train_mrr, preds = sess.run([
-                summary_train,
+                (summary_train_sup if supervised else summary_train_unsup),
                 optimizer, # otimization operation
                 loss, # compute current loss
                 model.ranks,
