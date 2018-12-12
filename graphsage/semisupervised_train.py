@@ -20,7 +20,7 @@ from graphsage.semisupervised_models import SemiSupervisedGraphsage
 os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
 
 # Set random seed
-seed = 123
+seed = 1234
 np.random.seed(seed)
 tf.set_random_seed(seed)
 
@@ -61,6 +61,7 @@ flags.DEFINE_integer('validate_batch_size', 256, "how many nodes per validation 
 flags.DEFINE_integer('gpu', 1, "which gpu to use.")
 flags.DEFINE_integer('print_every', 5, "How often to print training info.")
 flags.DEFINE_integer('max_total_steps', 10**10, "Maximum total number of iterations")
+flags.DEFINE_string('note', '', 'Optional experiment note to append to log directory')
 
 os.environ["CUDA_VISIBLE_DEVICES"]=str(FLAGS.gpu)
 
@@ -70,12 +71,13 @@ placeholders = 0
 
 def get_log_dir():
     timestr = time.strftime("%y%m%d-%H%M%S")
-    log_dir = FLAGS.base_log_dir + "/semisup-" + FLAGS.train_prefix.split("/")[-2]
-    log_dir += "/{timestamp:s}_{model:s}_{model_size:s}_{lr:0.6f}/".format(
+    log_dir = FLAGS.base_log_dir + "/semisup-" + FLAGS.train_prefix.split("/")[-1]
+    log_dir += "/{timestamp:s}_{model:s}_{model_size:s}_{lr:0.6f}_({note:s})/".format(
             timestamp=timestr,
             model=FLAGS.model,
             model_size=FLAGS.model_size,
-            lr=FLAGS.learning_rate)
+            lr=FLAGS.learning_rate,
+            note=FLAGS.note)
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
     return log_dir

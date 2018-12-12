@@ -2,6 +2,7 @@ import tensorflow as tf
 
 import graphsage.models as models
 import graphsage.layers as layers
+from graphsage.classifiers import ClassifierInfo, EmbeddingsClassifier
 from graphsage.aggregators import MeanAggregator, MaxPoolingAggregator, MeanPoolingAggregator, SeqAggregator, GCNAggregator
 from graphsage.prediction import BipartiteEdgePredLayer
 
@@ -121,12 +122,11 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
             bilinear_weights=False,
             name='edge_predict')
 
-        # define and apply dense layer (classifier)
+        # define and apply classifier
         dim_mult = 2 if self.concat else 1
-        self.node_pred = layers.Dense(dim_mult*self.dims[-1], self.num_classes,
-            dropout=self.placeholders['dropout'],
-            act=lambda x : x)
-        self.node_preds = self.node_pred(self.outputs)
+        info = [ClassifierInfo(dim_mult*self.dims[-1]/2, self.placeholders['dropout'], tf.nn.relu)]
+        self.classifier = EmbeddingsClassifier(dim_mult*self.dims[-1], self.num_classes, info)
+        self.node_preds = self.classifier(self.outputs)
 
         # compute relevant metrics
         aff = self.link_pred_layer.affinity(self.outputs, self.outputs_pos) # affinity
@@ -179,8 +179,9 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
         for aggregator in self.aggregators:
             for var in aggregator.vars.values():
                 loss += FLAGS.weight_decay * tf.nn.l2_loss(var)
-        for var in self.node_pred.vars.values():
+        for var in self.classifier.var_values():
             loss += FLAGS.weight_decay * tf.nn.l2_loss(var)
+
         # classification loss (cross entropy)
         if self.sigmoid_loss:
             loss += tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
