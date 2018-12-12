@@ -128,7 +128,7 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
             act=lambda x : x)
         self.node_preds = self.node_pred(self.outputs)
 
-        # compute relevant metrics (ranks and mrr)
+        # compute relevant metrics
         aff = self.link_pred_layer.affinity(self.outputs, self.outputs_pos) # affinity
         self.neg_aff = self.link_pred_layer.neg_cost(self.outputs, self.outputs_neg)
         self.neg_aff = tf.reshape(self.neg_aff, [self.batch_size, FLAGS.neg_sample_size])
@@ -138,6 +138,9 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
         _, indices_of_ranks = tf.nn.top_k(self.aff_all, k=size)
         _, self.ranks = tf.nn.top_k(-indices_of_ranks, k=size)
         self.mrr = tf.reduce_mean(tf.div(1.0, tf.cast(self.ranks[:, -1] + 1, tf.float32)))
+        # 'read' vars return the computed value so far without altering the local streaming varialbles
+        self.accuracy_read, self.accuracy = self._accuracy(name="train")
+        self.accuracy_read_val, self.accuracy_val = self._accuracy(name="val")
 
         # compute loss
         # self.loss = tf.cond(self.placeholders['supervised'], self._loss_sup, self._loss_unsup)
@@ -188,6 +191,16 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
                 logits=self.node_preds,
                 labels=self.placeholders['labels']))
         return loss
+
+    def _accuracy(self, name):
+        labels = self.placeholders['labels']
+        preds = self.node_preds
+        # acc, acc_op = tf.metrics.accuracy(labels, preds)
+        acc, acc_op = tf.metrics.accuracy(
+            labels=tf.argmax(labels, 1),
+            predictions=tf.argmax(preds, 1),
+            name=name+"_acc")
+        return acc, acc_op
 
     def predict(self):
         if self.sigmoid_loss:

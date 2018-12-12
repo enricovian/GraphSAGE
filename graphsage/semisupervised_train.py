@@ -86,23 +86,31 @@ def evaluate(sess, model, minibatch_iter, size=None, supervised=False):
     loss = model.loss_sup if supervised else model.loss_unsup
     feed_dict_val, _ = (minibatch_iter.val_feed_dict_sup(size) if supervised else
         minibatch_iter.val_feed_dict(size))
-    outs_val = sess.run([loss, model.ranks, model.mrr],
-                        feed_dict=feed_dict_val)
-    return outs_val[0], outs_val[1], outs_val[2], (time.time() - t_test)
+    ops = [loss, model.ranks, model.mrr]
+    if supervised:
+        ops.append(model.accuracy_val)
+        loss, ranks, mrr, acc = sess.run(ops, feed_dict=feed_dict_val)
+        return loss, ranks, mrr, acc, (time.time() - t_test)
+    else:
+        loss, ranks, mrr = sess.run(ops, feed_dict=feed_dict_val)
+        acc = None
+        return loss, ranks, mrr, acc, (time.time() - t_test)
 
 # evaluate the whole validation set
 def incremental_evaluate(sess, model, minibatch_iter, size):
     t_test = time.time()
+    sess.run(tf.initializers.variables(tf.local_variables(scope="val"))) # init local variables
     finished = False
     val_losses_sup = []
     val_losses_unsup = []
     val_mrrs = []
     iter_num = 0
+    accuracy = None
     while not finished:
         feed_dict_val, _, finished, _ = minibatch_iter.incremental_val_feed_dict_sup(size, iter_num)
         iter_num += 1
-        outs_val = sess.run([model.loss_sup], feed_dict=feed_dict_val)
-        val_losses_sup.append(outs_val[0])
+        loss_sup, accuracy = sess.run([model.loss_sup, model.accuracy_val], feed_dict=feed_dict_val)
+        val_losses_sup.append(loss_sup)
     finished = False
     while not finished:
         feed_dict_val, _, finished, _ = minibatch_iter.incremental_val_feed_dict(size, iter_num)
@@ -111,7 +119,7 @@ def incremental_evaluate(sess, model, minibatch_iter, size):
                             feed_dict=feed_dict_val)
         val_losses_unsup.append(outs_val[0])
         val_mrrs.append(outs_val[2])
-    return np.mean(val_losses_sup), np.mean(val_losses_unsup), np.mean(val_mrrs), (time.time() - t_test)
+    return np.mean(val_losses_sup), np.mean(val_losses_unsup), np.mean(val_mrrs), accuracy, (time.time() - t_test)
 
 def construct_placeholders(num_classes):
     # Define placeholders
@@ -305,9 +313,11 @@ def train(train_data, test_data=None):
         summary_train_loss_sup = tf.summary.scalar('supervised loss', model.loss_sup)
         summary_train_loss_unsup = tf.summary.scalar('unsupervised loss', model.loss_unsup)
         summary_train_mrr = tf.summary.scalar('mrr', model.mrr)
+        summary_train_acc = tf.summary.scalar('accuracy', model.accuracy)
         summary_train_sup = tf.summary.merge([
             summary_train_loss_sup,
-            summary_train_mrr])
+            summary_train_mrr,
+            summary_train_acc])
         summary_train_unsup = tf.summary.merge([
             summary_train_loss_unsup,
             summary_train_mrr])
@@ -315,10 +325,12 @@ def train(train_data, test_data=None):
         summary_val_loss_sup = tf.summary.scalar('supervised loss', model.loss_sup)
         summary_val_loss_unsup = tf.summary.scalar('unsupervised loss', model.loss_unsup)
         summary_val_mrr = tf.summary.scalar('mrr', model.mrr)
+        summary_val_acc = tf.summary.scalar('accuracy', model.accuracy_read_val) # only read the already computed validation accuracy
         summary_val = tf.summary.merge([
             summary_val_loss_sup,
             summary_val_loss_unsup,
-            summary_val_mrr])
+            summary_val_mrr,
+            summary_val_acc])
     summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
 
     # Init variables
@@ -334,6 +346,10 @@ def train(train_data, test_data=None):
     val_adj_info = tf.assign(adj_info, minibatch.test_adj)
     for epoch in range(FLAGS.epochs):
         minibatch.shuffle() # shuffle the minibatches
+
+        # init local variables
+        sess.run(tf.initializers.variables(tf.local_variables(scope="train")))
+        sess.run(tf.initializers.variables(tf.local_variables(scope="val")))
 
         iter = 0
         print('Epoch: %04d' % (epoch + 1))
@@ -372,14 +388,13 @@ def train(train_data, test_data=None):
                 # Validation
                 sess.run(val_adj_info.op)
                 if FLAGS.validate_batch_size == -1:
-                    val_cost, val_ranks, val_mrr, duration = incremental_evaluate(
+                    val_cost, val_ranks, val_mrr, val_acc, duration = incremental_evaluate(
                         sess,
                         model,
                         minibatch,
-                        FLAGS.batch_size,
-                        supervised=supervised)
+                        FLAGS.batch_size)
                 else:
-                    val_cost, val_ranks, val_mrr, duration = evaluate(
+                    val_cost, val_ranks, val_mrr, val_acc, duration = evaluate(
                         sess,
                         model,
                         minibatch,
@@ -406,6 +421,7 @@ def train(train_data, test_data=None):
                       "train_mrr=", "{:.5f}".format(train_mrr),
                       "val_loss=", "{:.5f}".format(val_cost),
                       "val_mrr=", "{:.5f}".format(val_mrr),
+                      "accuracy=", "{:.5f}".format(sess.run(model.accuracy_read, feed_dict=feed_dict)),
                       "time=", "{:.5f}".format(avg_time))
 
             # update counters
@@ -422,15 +438,18 @@ def train(train_data, test_data=None):
 
     # compute validation results and produce an output file
     sess.run(val_adj_info.op)
-    val_cost_sup, val_cost_unsup, val_mrr, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
+    val_cost_sup, val_cost_unsup, val_mrr, val_acc, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
+    summary_val_out = sess.run(summary_val, feed_dict=feed_dict)
+    summary_writer.add_summary(summary_val_out, total_steps)
     print("Full validation stats:\n",
           "\tsupervised loss=", "{:.5f}".format(val_cost_sup), "\n",
           "\tunsupervised loss=", "{:.5f}".format(val_cost_unsup), "\n",
           "\tmrr=", "{:.5f}".format(val_mrr), "\n",
+          "\taccuracy=", "{:.5f}".format(val_acc), "\n",
           "\tevaluation time=", "{:.5f}".format(duration))
     with open(log_dir + "val_stats.txt", "w") as fp:
-        fp.write("supervised_loss={:.5f}, unsupervised_loss={:.5f}, mrr={:.5f}, evaluation_time={:.5f}".
-            format(val_cost_sup, val_cost_unsup, val_mrr, duration))
+        fp.write("supervised_loss={:.5f}, unsupervised_loss={:.5f}, mrr={:.5f}, accuracy={:.5f} evaluation_time={:.5f}".
+            format(val_cost_sup, val_cost_unsup, val_mrr, val_acc, duration))
     # TODO: Perform evaluation on test set
 
     if FLAGS.save_embeddings:

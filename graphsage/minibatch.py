@@ -554,6 +554,8 @@ class SupervisedEdgeMinibatchIterator(object):
 
     def incremental_embed_feed_dict(self, size, iter_num):
         node_list = self.nodes
+        if size < 0: # a negative size means the whole set is processed at once
+            size = len(node_list)
         val_nodes = node_list[iter_num*size:min((iter_num+1)*size,
             len(node_list))]
         val_edges = [(n,n) for n in val_nodes]
