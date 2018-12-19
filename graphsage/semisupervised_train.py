@@ -238,6 +238,7 @@ def train(train_data, test_data=None):
             model_size=FLAGS.model_size,
             sigmoid_loss = FLAGS.sigmoid,
             identity_dim = FLAGS.identity_dim,
+            concat = False,
             logging=True
         )
     elif FLAGS.model == 'graphsage_seq':

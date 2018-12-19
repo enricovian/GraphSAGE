@@ -9,7 +9,7 @@ class MeanAggregator(Layer):
     """
 
     def __init__(self, input_dim, output_dim, neigh_input_dim=None,
-            dropout=0., bias=False, act=tf.nn.relu, 
+            dropout=0., bias=False, act=tf.nn.relu,
             name=None, concat=False, **kwargs):
         super(MeanAggregator, self).__init__(**kwargs)
 
@@ -46,12 +46,12 @@ class MeanAggregator(Layer):
         neigh_vecs = tf.nn.dropout(neigh_vecs, 1-self.dropout)
         self_vecs = tf.nn.dropout(self_vecs, 1-self.dropout)
         neigh_means = tf.reduce_mean(neigh_vecs, axis=1)
-       
+
         # [nodes] x [out_dim]
         from_neighs = tf.matmul(neigh_means, self.vars['neigh_weights'])
 
         from_self = tf.matmul(self_vecs, self.vars["self_weights"])
-         
+
         if not self.concat:
             output = tf.add_n([from_self, from_neighs])
         else:
@@ -60,7 +60,7 @@ class MeanAggregator(Layer):
         # bias
         if self.bias:
             output += self.vars['bias']
-       
+
         return self.act(output)
 
 class GCNAggregator(Layer):
@@ -103,16 +103,16 @@ class GCNAggregator(Layer):
 
         neigh_vecs = tf.nn.dropout(neigh_vecs, 1-self.dropout)
         self_vecs = tf.nn.dropout(self_vecs, 1-self.dropout)
-        means = tf.reduce_mean(tf.concat([neigh_vecs, 
+        means = tf.reduce_mean(tf.concat([neigh_vecs,
             tf.expand_dims(self_vecs, axis=1)], axis=1), axis=1)
-       
+
         # [nodes] x [out_dim]
         output = tf.matmul(means, self.vars['weights'])
 
         # bias
         if self.bias:
             output += self.vars['bias']
-       
+
         return self.act(output)
 
 
@@ -152,7 +152,7 @@ class MaxPoolingAggregator(Layer):
         with tf.variable_scope(self.name + name + '_vars'):
             self.vars['neigh_weights'] = glorot([hidden_dim, output_dim],
                                                         name='neigh_weights')
-           
+
             self.vars['self_weights'] = glorot([input_dim, output_dim],
                                                         name='self_weights')
             if self.bias:
@@ -179,10 +179,10 @@ class MaxPoolingAggregator(Layer):
             h_reshaped = l(h_reshaped)
         neigh_h = tf.reshape(h_reshaped, (batch_size, num_neighbors, self.hidden_dim))
         neigh_h = tf.reduce_max(neigh_h, axis=1)
-        
+
         from_neighs = tf.matmul(neigh_h, self.vars['neigh_weights'])
         from_self = tf.matmul(self_vecs, self.vars["self_weights"])
-        
+
         if not self.concat:
             output = tf.add_n([from_self, from_neighs])
         else:
@@ -191,7 +191,7 @@ class MaxPoolingAggregator(Layer):
         # bias
         if self.bias:
             output += self.vars['bias']
-       
+
         return self.act(output)
 
 class MeanPoolingAggregator(Layer):
@@ -230,7 +230,7 @@ class MeanPoolingAggregator(Layer):
         with tf.variable_scope(self.name + name + '_vars'):
             self.vars['neigh_weights'] = glorot([hidden_dim, output_dim],
                                                         name='neigh_weights')
-           
+
             self.vars['self_weights'] = glorot([input_dim, output_dim],
                                                         name='self_weights')
             if self.bias:
@@ -257,10 +257,10 @@ class MeanPoolingAggregator(Layer):
             h_reshaped = l(h_reshaped)
         neigh_h = tf.reshape(h_reshaped, (batch_size, num_neighbors, self.hidden_dim))
         neigh_h = tf.reduce_mean(neigh_h, axis=1)
-        
+
         from_neighs = tf.matmul(neigh_h, self.vars['neigh_weights'])
         from_self = tf.matmul(self_vecs, self.vars["self_weights"])
-        
+
         if not self.concat:
             output = tf.add_n([from_self, from_neighs])
         else:
@@ -269,7 +269,7 @@ class MeanPoolingAggregator(Layer):
         # bias
         if self.bias:
             output += self.vars['bias']
-       
+
         return self.act(output)
 
 
@@ -318,7 +318,7 @@ class TwoMaxLayerPoolingAggregator(Layer):
         with tf.variable_scope(self.name + name + '_vars'):
             self.vars['neigh_weights'] = glorot([hidden_dim_2, output_dim],
                                                         name='neigh_weights')
-           
+
             self.vars['self_weights'] = glorot([input_dim, output_dim],
                                                         name='self_weights')
             if self.bias:
@@ -345,10 +345,10 @@ class TwoMaxLayerPoolingAggregator(Layer):
             h_reshaped = l(h_reshaped)
         neigh_h = tf.reshape(h_reshaped, (batch_size, num_neighbors, self.hidden_dim_2))
         neigh_h = tf.reduce_max(neigh_h, axis=1)
-        
+
         from_neighs = tf.matmul(neigh_h, self.vars['neigh_weights'])
         from_self = tf.matmul(self_vecs, self.vars["self_weights"])
-        
+
         if not self.concat:
             output = tf.add_n([from_self, from_neighs])
         else:
@@ -357,7 +357,7 @@ class TwoMaxLayerPoolingAggregator(Layer):
         # bias
         if self.bias:
             output += self.vars['bias']
-       
+
         return self.act(output)
 
 class SeqAggregator(Layer):
@@ -388,7 +388,7 @@ class SeqAggregator(Layer):
         with tf.variable_scope(self.name + name + '_vars'):
             self.vars['neigh_weights'] = glorot([hidden_dim, output_dim],
                                                         name='neigh_weights')
-           
+
             self.vars['self_weights'] = glorot([input_dim, output_dim],
                                                         name='self_weights')
             if self.bias:
@@ -434,7 +434,7 @@ class SeqAggregator(Layer):
 
         from_neighs = tf.matmul(neigh_h, self.vars['neigh_weights'])
         from_self = tf.matmul(self_vecs, self.vars["self_weights"])
-         
+
         output = tf.add_n([from_self, from_neighs])
 
         if not self.concat:
@@ -445,6 +445,5 @@ class SeqAggregator(Layer):
         # bias
         if self.bias:
             output += self.vars['bias']
-       
-        return self.act(output)
 
+        return self.act(output)
