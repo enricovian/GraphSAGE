@@ -109,8 +109,10 @@ def incremental_evaluate(sess, model, minibatch_iter, size):
     iter_num = 0
     accuracy = None
     while not finished:
-        feed_dict_val, _, finished, _ = minibatch_iter.incremental_val_feed_dict_sup(size, iter_num)
+        feed_dict_val, labels, finished, _ = minibatch_iter.incremental_val_feed_dict_sup(size, iter_num, duplicates=False)
         iter_num += 1
+        if feed_dict_val is None:
+            continue
         loss_sup, accuracy = sess.run([model.loss_sup, model.accuracy_val], feed_dict=feed_dict_val)
         val_losses_sup.append(loss_sup)
     finished = False

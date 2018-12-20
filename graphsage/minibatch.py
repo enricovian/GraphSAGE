@@ -364,33 +364,36 @@ class SupervisedEdgeMinibatchIterator(object):
         self.adj, self.deg = self.construct_adj()
         self.test_adj = self.construct_test_adj()
 
+        train_nodes = [n for n in G.nodes() if not G.node[n]['test'] and not G.node[n]['val']]
+        test_nodes = [n for n in G.nodes() if G.node[n]['test'] or G.node[n]['val']]
+
         if context_pairs is None:
-            edges = G.edges()
+            G_train = G.subgraph(train_nodes)
+            train_edges = [e for e in G_train.edges()]
         else:
-            edges = context_pairs
-        self.train_edges = self.edges = np.random.permutation(edges)
+            train_edges = context_pairs
+        self.train_edges = np.random.permutation(train_edges)
         self.train_edges, missing = self._remove_isolated(self.train_edges) # remove edges referring to missing nodes
         print("Unexpected missing nodes:", missing)
         self.train_edges_sup = [edge for edge in self.train_edges if G.node[edge[0]]['labeled']]
         self.train_edges_unsup = [edge for edge in self.train_edges if not G.node[edge[0]]['labeled']]
-        # mark the edges referring to a test node as 'train_removed'
-        self.val_edges = [e for e in G.edges() if G[e[0]][e[1]]['train_removed']]
+        self.val_edges = [e for e in G.edges() if e[0] in test_nodes]
+        # Put the validation nodes always as first element (DOES MESS UP DIRECTED GRAPHS!)
+        self.val_edges.extend([(e[1], e[0]) for e in G.edges() if e[1] in test_nodes])
         self.val_edges_sup = [edge for edge in self.val_edges if G.node[edge[0]]['labeled']]
         self.val_edges_unsup = [edge for edge in self.val_edges if not G.node[edge[0]]['labeled']]
+        self.val_set_size = len(self.val_edges)
+
         print(len(self.train_edges),'train edges -',len(self.train_edges_sup),
             'supervised and',len(self.train_edges_unsup),'unsupervised')
         print(len(self.val_edges),'validation edges -',len(self.val_edges_sup),
             'supervised and',len(self.val_edges_unsup),'unsupervised')
-
-        train_nodes = [n for n in G.nodes() if not G.node[n]['test'] and not G.node[n]['val']]
-        test_nodes = [n for n in G.nodes() if G.node[n]['test'] or G.node[n]['val']]
         print(len(train_nodes), 'train nodes -',
             len([n for n in train_nodes if G.node[n]['labeled']]), 'labeled and',
             len([n for n in train_nodes if not G.node[n]['labeled']]), 'unlabeled')
         print(len(test_nodes), 'test nodes -',
             len([n for n in test_nodes if G.node[n]['labeled']]), 'labeled and',
             len([n for n in test_nodes if not G.node[n]['labeled']]), 'unlabeled')
-        self.val_set_size = len(self.val_edges)
 
     def _n2v_prune(self, edges):
         is_val = lambda n : self.G.node[n]["val"] or self.G.node[n]["test"]
@@ -464,13 +467,27 @@ class SupervisedEdgeMinibatchIterator(object):
     def end_unsup(self):
         return self.batch_num_unsup * self.batch_size >= len(self.train_edges_unsup)
 
-    def batch_feed_dict(self, batch_edges):
+    def batch_feed_dict(self, batch_edges, duplicates=True):
+        """ Construct the feed_dict for a batch of edges.
+            The duplicate flag determines whether to consider the same node more than once.
+        """
         batch1 = []
         batch2 = []
         for node1, node2 in batch_edges:
             batch1.append(self.id2idx[node1])
             batch2.append(self.id2idx[node2])
-
+        if not duplicates:
+            # remove duplicate nodes and update the seen nodes list
+            nodes, unique_idx = np.unique(batch1, return_index=True) # remove duplicates
+            nodes_unique_idx = [(n, i) for (n, i) in zip(nodes, unique_idx) if n not in self.seen_nodes] # remove nodes seen in previous batches
+            if len(nodes_unique_idx) == 0:
+                # if there are no new nodes, return None
+                return None, None
+            nodes, unique_idx = zip(*nodes_unique_idx) # unzip the tuples to lists
+            self.seen_nodes.extend(nodes)
+            batch1 = [n for i, n in enumerate(batch1) if i in unique_idx]
+            batch2 = [n for i, n in enumerate(batch2) if i in unique_idx]
+            batch_edges = [n for i, n in enumerate(batch_edges) if i in unique_idx]
         labels = np.vstack([self._make_label_vec(node1) for node1, node2 in batch_edges])
         feed_dict = dict()
         feed_dict.update({self.placeholders['batch_size'] : len(batch_edges)})
@@ -538,11 +555,17 @@ class SupervisedEdgeMinibatchIterator(object):
         feed_dict, labels = self.batch_feed_dict(val_edges)
         return feed_dict, labels, (iter_num+1)*size >= len(self.val_edges), val_edges
 
-    def incremental_val_feed_dict_sup(self, size, iter_num):
+
+    def incremental_val_feed_dict_sup(self, size, iter_num, duplicates=True):
+        """
+            The duplicate flag determines whether to consider the same node more than once.
+        """
+        if iter_num == 0:
+            self.seen_nodes = []
         edge_list = self.val_edges_sup
         val_edges = edge_list[iter_num*size:min((iter_num+1)*size,
             len(edge_list))]
-        feed_dict, labels = self.batch_feed_dict(val_edges)
+        feed_dict, labels = self.batch_feed_dict(val_edges, duplicates=duplicates)
         return feed_dict, labels, (iter_num+1)*size >= len(self.val_edges_sup), val_edges
 
     def incremental_val_feed_dict_unsup(self, size, iter_num):
@@ -580,5 +603,8 @@ class SupervisedEdgeMinibatchIterator(object):
         self.train_edges = np.random.permutation(self.train_edges)
         self.train_edges_sup = np.random.permutation(self.train_edges_sup)
         self.train_edges_unsup = np.random.permutation(self.train_edges_unsup)
+        # self.val_edges = np.random.permutation(self.val_edges)
+        # self.val_edges_sup = np.random.permutation(self.val_edges_sup)
+        # self.val_edges_unsup = np.random.permutation(self.val_edges_unsup)
         self.nodes = np.random.permutation(self.nodes)
         self.batch_num = self.batch_num_sup = self.batch_num_unsup = 0
