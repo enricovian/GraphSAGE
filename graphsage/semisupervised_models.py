@@ -10,13 +10,14 @@ flags = tf.app.flags
 FLAGS = flags.FLAGS
 
 class SemiSupervisedGraphsage(models.SampleAndAggregate):
-    """Implementation of supervised GraphSAGE."""
+    """ Implementation of supervised GraphSAGE.
+        This implementation combines the GraphSAGE loss with a supervised loss
+        computed only for labeled samples.
+    """
 
-    def __init__(self, num_classes,
-            placeholders, features, adj, degrees,
+    def __init__(self, num_classes, placeholders, features, adj, degrees,
             layer_infos, concat=True, aggregator_type="mean",
-            model_size="small", sigmoid_loss=False, identity_dim=0,
-                **kwargs):
+            model_size="small", sigmoid_loss=False, identity_dim=0, **kwargs):
         '''
         Args:
             - placeholders: Stanford TensorFlow placeholder object.

@@ -340,11 +340,11 @@ class SupervisedEdgeMinibatchIterator(object):
     max_degree -- maximum size of the downsampled adjacency lists
     n2v_retrain -- signals that the iterator is being used to add new embeddings to a n2v model
     fixed_n2v -- signals that the iterator is being used to retrain n2v with only existing nodes as context
+    label_edges -- construct edges between nodes with the same label
     """
-    def __init__(self, G, id2idx,
-            placeholders, label_map, num_classes, context_pairs=None, batch_size=100, max_degree=25,
-            n2v_retrain=False, fixed_n2v=False,
-            **kwargs):
+    def __init__(self, G, id2idx, placeholders, label_map, num_classes,
+        context_pairs=None, batch_size=100, max_degree=25, n2v_retrain=False,
+        fixed_n2v=False, label_edges=False, **kwargs):
 
         self.G = G
         self.nodes = G.nodes()
@@ -363,6 +363,15 @@ class SupervisedEdgeMinibatchIterator(object):
         self.nodes = np.random.permutation(G.nodes())
         self.adj, self.deg = self.construct_adj()
         self.test_adj = self.construct_test_adj()
+
+        if label_edges:
+            new_edges = []
+            for node1 in self.labeled_nodes:
+                for node2 in self.labeled_nodes:
+                    if self.label_map[node1] == self.label_map[node2]:
+                        new_edges.append((node1, node2))
+            G.add_edges_from(new_edges)
+            print("Added {} new edges between nodes with the same label".format(len(new_edges)))
 
         train_nodes = [n for n in G.nodes() if not G.node[n]['test'] and not G.node[n]['val']]
         test_nodes = [n for n in G.nodes() if G.node[n]['test'] or G.node[n]['val']]

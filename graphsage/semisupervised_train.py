@@ -52,6 +52,7 @@ flags.DEFINE_integer('batch_size', 512, 'minibatch size.')
 flags.DEFINE_boolean('sigmoid', False, 'whether to use sigmoid loss')
 flags.DEFINE_integer('identity_dim', 0, 'Set to positive value to use identity embedding features of that dimension. Default 0.')
 flags.DEFINE_float('supervised_ratio', 0.5, 'Probability to perform a supervised training iteration instead of an unsupervised one.')
+flags.DEFINE_boolean('label_edges', False, 'If true the aggregation considers nodes with the same label as neighbors.')
 
 #logging, saving, validation settings etc.
 flags.DEFINE_boolean('save_embeddings', True, 'whether to save embeddings for all nodes after training')
@@ -190,7 +191,8 @@ def train(train_data, test_data=None):
             num_classes,
             batch_size=FLAGS.batch_size,
             max_degree=FLAGS.max_degree,
-            context_pairs = context_pairs)
+            context_pairs=context_pairs,
+            label_edges=FLAGS.label_edges)
     adj_info_ph = tf.placeholder(tf.int32, shape=minibatch.adj.shape)
     adj_info = tf.Variable(adj_info_ph, trainable=False, name="adj_info")
 
@@ -360,7 +362,7 @@ def train(train_data, test_data=None):
         print('Epoch: %04d' % (epoch + 1))
         epoch_val_costs.append(0)
 
-        while not (minibatch.end() and minibatch.end_sup()):
+        while not (minibatch.end() and (minibatch.end_sup() or FLAGS.supervised_ratio==0)):
             # define supervised or unsupervised training
             supervised = False
             if (minibatch.end() or (not minibatch.end_sup() and (np.random.rand() < FLAGS.supervised_ratio))):
