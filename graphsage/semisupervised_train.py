@@ -83,21 +83,40 @@ def get_log_dir():
         os.makedirs(log_dir)
     return log_dir
 
+def calc_f1(y_true, y_pred, ignore_missing=False):
+    """ Compute f1 scores
+        The ignore_missing option specifies whether to ignore labels not present in
+        the predictions when computing the metrics.
+    """
+    if not FLAGS.sigmoid:
+        y_true = np.argmax(y_true, axis=1)
+        y_pred = np.argmax(y_pred, axis=1)
+    else:
+        y_pred[y_pred > 0.5] = 1
+        y_pred[y_pred <= 0.5] = 0
+    micro_f1 = metrics.f1_score(y_true, y_pred, average="micro",
+        labels=(np.unique(y_pred) if ignore_missing else None))
+    macro_f1 = metrics.f1_score(y_true, y_pred, average="macro",
+        labels=(np.unique(y_pred) if ignore_missing else None))
+    return micro_f1, macro_f1
+
 # Define model evaluation function
 def evaluate(sess, model, minibatch_iter, size=None, supervised=False):
     t_test = time.time()
     loss = model.loss_sup if supervised else model.loss_unsup
-    feed_dict_val, _ = (minibatch_iter.val_feed_dict_sup(size) if supervised else
+    feed_dict_val, labels = (minibatch_iter.val_feed_dict_sup(size) if supervised else
         minibatch_iter.val_feed_dict(size))
     ops = [loss, model.ranks, model.mrr]
     if supervised:
-        ops.append(model.accuracy_val)
-        loss, ranks, mrr, acc = sess.run(ops, feed_dict=feed_dict_val)
-        return loss, ranks, mrr, acc, (time.time() - t_test)
+        ops.extend([model.accuracy_val, model.preds])
+        loss, ranks, mrr, acc, preds = sess.run(ops, feed_dict=feed_dict_val)
+        micro_f1, macro_f1 = calc_f1(labels, preds, ignore_missing=True)
     else:
         loss, ranks, mrr = sess.run(ops, feed_dict=feed_dict_val)
         acc = None
-        return loss, ranks, mrr, acc, (time.time() - t_test)
+        micro_f1 = None
+        macro_f1 = None
+    return loss, ranks, mrr, acc, micro_f1, macro_f1, (time.time() - t_test)
 
 # evaluate the whole validation set
 def incremental_evaluate(sess, model, minibatch_iter, size):
@@ -107,6 +126,8 @@ def incremental_evaluate(sess, model, minibatch_iter, size):
     val_losses_sup = []
     val_losses_unsup = []
     val_mrrs = []
+    val_micro_f1 = []
+    val_macro_f1 = []
     iter_num = 0
     accuracy = None
     while not finished:
@@ -114,8 +135,11 @@ def incremental_evaluate(sess, model, minibatch_iter, size):
         iter_num += 1
         if feed_dict_val is None:
             continue
-        loss_sup, accuracy = sess.run([model.loss_sup, model.accuracy_val], feed_dict=feed_dict_val)
+        loss_sup, accuracy, preds = sess.run([model.loss_sup, model.accuracy_val, model.preds], feed_dict=feed_dict_val)
         val_losses_sup.append(loss_sup)
+        micro_f1, macro_f1 = calc_f1(labels, preds, ignore_missing=True)
+        val_micro_f1.append(micro_f1)
+        val_macro_f1.append(macro_f1)
     finished = False
     while not finished:
         feed_dict_val, _, finished, _ = minibatch_iter.incremental_val_feed_dict(size, iter_num)
@@ -124,7 +148,7 @@ def incremental_evaluate(sess, model, minibatch_iter, size):
                             feed_dict=feed_dict_val)
         val_losses_unsup.append(outs_val[0])
         val_mrrs.append(outs_val[2])
-    return np.mean(val_losses_sup), np.mean(val_losses_unsup), np.mean(val_mrrs), accuracy, (time.time() - t_test)
+    return np.mean(val_losses_sup), np.mean(val_losses_unsup), np.mean(val_mrrs), accuracy, np.mean(val_micro_f1), np.mean(val_macro_f1), (time.time() - t_test)
 
 def construct_placeholders(num_classes):
     # Define placeholders
@@ -395,13 +419,13 @@ def train(train_data, test_data=None):
                 # Validation
                 sess.run(val_adj_info.op)
                 if FLAGS.validate_batch_size == -1:
-                    val_cost, val_ranks, val_mrr, val_acc, duration = incremental_evaluate(
+                    val_cost, val_ranks, val_mrr, val_acc, val_micro_f1, val_macro_f1, duration = incremental_evaluate(
                         sess,
                         model,
                         minibatch,
                         FLAGS.batch_size)
                 else:
-                    val_cost, val_ranks, val_mrr, val_acc, duration = evaluate(
+                    val_cost, val_ranks, val_mrr, val_acc, val_micro_f1, val_macro_f1, duration = evaluate(
                         sess,
                         model,
                         minibatch,
@@ -415,17 +439,25 @@ def train(train_data, test_data=None):
                 sess.run(train_adj_info.op)
                 epoch_val_costs[-1] += val_cost
 
-            avg_time = (avg_time * total_steps + time.time() - t) / (total_steps + 1)
+            # log train summary
+            summary_writer.add_summary(summary, total_steps)
 
-            if total_steps % FLAGS.print_every == 0:
-                summary_writer.add_summary(summary, total_steps)
+            # running average for training time
+            avg_time = (avg_time * total_steps + time.time() - t) / (total_steps + 1)
 
             # Print results
             if total_steps % FLAGS.print_every == 0:
+                train_micro_f1, train_macro_f1 = calc_f1(labels, preds, ignore_missing=True) if supervised else (None, None)
+                if train_micro_f1 is None:
+                    train_micro_f1 = 0
+                if train_macro_f1 is None:
+                    train_macro_f1 = 0
                 print(("[S]" if supervised else "[U]"),
                       "Iter:", '%04d' % iter,
                       "train_loss=", "{:.5f}".format(train_cost),
                       "train_mrr=", "{:.5f}".format(train_mrr),
+                      "train_micro_f1=", "{:.5f}".format(train_micro_f1),
+                      "train_macro_f1=", "{:.5f}".format(train_macro_f1),
                       "val_loss=", "{:.5f}".format(val_cost),
                       "val_mrr=", "{:.5f}".format(val_mrr),
                       "accuracy=", "{:.5f}".format(sess.run(model.accuracy_read, feed_dict=feed_dict)),
@@ -445,7 +477,7 @@ def train(train_data, test_data=None):
 
     # compute validation results and produce an output file
     sess.run(val_adj_info.op)
-    val_cost_sup, val_cost_unsup, val_mrr, val_acc, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
+    val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_micro_f1, val_macro_f1, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
     summary_val_out = sess.run(summary_val, feed_dict=feed_dict)
     summary_writer.add_summary(summary_val_out, total_steps)
     print("Full validation stats:\n",
@@ -453,6 +485,8 @@ def train(train_data, test_data=None):
           "\tunsupervised loss=", "{:.5f}".format(val_cost_unsup), "\n",
           "\tmrr=", "{:.5f}".format(val_mrr), "\n",
           "\taccuracy=", "{:.5f}".format(val_acc), "\n",
+          "\tmicro-f1=", "{:.5f}".format(val_micro_f1), "\n",
+          "\tmacro-f1=", "{:.5f}".format(val_macro_f1), "\n",
           "\tevaluation time=", "{:.5f}".format(duration))
     with open(log_dir + "val_stats.txt", "w") as fp:
         fp.write("supervised_loss={:.5f}, unsupervised_loss={:.5f}, mrr={:.5f}, accuracy={:.5f} evaluation_time={:.5f}".
