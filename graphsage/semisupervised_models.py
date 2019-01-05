@@ -128,6 +128,8 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
         info = [ClassifierInfo(dim_mult*self.dims[-1]/2, self.placeholders['dropout'], tf.nn.relu)]
         self.classifier = EmbeddingsClassifier(dim_mult*self.dims[-1], self.num_classes, info)
         self.node_preds = self.classifier(self.outputs)
+        # predict
+        self.preds = self.predict()
 
         # compute relevant metrics
         aff = self.link_pred_layer.affinity(self.outputs, self.outputs_pos) # affinity
@@ -139,9 +141,20 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
         _, indices_of_ranks = tf.nn.top_k(self.aff_all, k=size)
         _, self.ranks = tf.nn.top_k(-indices_of_ranks, k=size)
         self.mrr = tf.reduce_mean(tf.div(1.0, tf.cast(self.ranks[:, -1] + 1, tf.float32)))
-        # 'read' vars return the computed value so far without altering the local streaming varialbles
+        # 'read' vars return the computed value so far without altering the local streaming variables
         self.accuracy_read, self.accuracy = self._accuracy(name="train")
         self.accuracy_read_val, self.accuracy_val = self._accuracy(name="val")
+
+        self.confusion_read, self.confusion = self._confusion(name="train")
+        self.confusion_read_val, self.confusion_val = self._confusion(name="val")
+        self.precision_read, self.precision = self._precision(name="train")
+        self.precision_read_val, self.precision_val = self._precision(name="val")
+        self.recall_read, self.recall = self._recall(name="train")
+        self.recall_read_val, self.recall_val = self._recall(name="val")
+        self.f1_read = self._f1(precision=self.precision_read, recall=self.recall_read)
+        self.f1 = self._f1(precision=self.precision, recall=self.recall)
+        self.f1_read_val = self._f1(precision=self.precision_read_val, recall=self.recall_read_val)
+        self.f1_val = self._f1(precision=self.precision_val, recall=self.recall_val)
 
         # compute loss
         # self.loss = tf.cond(self.placeholders['supervised'], self._loss_sup, self._loss_unsup)
@@ -162,8 +175,6 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
         self.unsup_grad, _ = unsup_clipped_grads_and_vars[0]
         self.unsup_opt_op = self.unsup_optimizer.apply_gradients(unsup_clipped_grads_and_vars)
 
-        # predict
-        self.preds = self.predict()
 
     def _loss_unsup(self):
         loss = 0
@@ -196,13 +207,60 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
 
     def _accuracy(self, name):
         labels = self.placeholders['labels']
-        preds = self.node_preds
+        preds = self.preds
         # acc, acc_op = tf.metrics.accuracy(labels, preds)
         acc, acc_op = tf.metrics.accuracy(
             labels=tf.argmax(labels, 1),
             predictions=tf.argmax(preds, 1),
             name=name+"_acc")
         return acc, acc_op
+
+    def _precision(self, name):
+        labels = self.placeholders['labels']
+        preds = self.preds
+        # acc, acc_op = tf.metrics.accuracy(labels, preds)
+        prec, prec_op = tf.metrics.precision(
+            labels=tf.argmax(labels, 1),
+            predictions=tf.argmax(preds, 1),
+            name=name+"_prec")
+        return prec, prec_op
+
+    def _recall(self, name):
+        labels = self.placeholders['labels']
+        preds = self.preds
+        # acc, acc_op = tf.metrics.accuracy(labels, preds)
+        rec, rec_op = tf.metrics.recall(
+            labels=tf.argmax(labels, 1),
+            predictions=tf.argmax(preds, 1),
+            name=name+"_rec")
+        return rec, rec_op
+
+    def _f1(self, precision, recall):
+        f1_score = 2*(precision*recall)/(precision+recall)
+        # if the f1 score is NaN set it to 0
+        f1_score = tf.cond(
+            tf.equal(tf.is_nan(f1_score), tf.constant(True)),
+            lambda: tf.constant(0.),
+            lambda: f1_score)
+        return f1_score
+
+    def _confusion(self, name):
+        labels = self.placeholders['labels']
+        preds = self.preds
+        # Compute a per-batch confusion
+        batch_confusion = tf.confusion_matrix(
+            labels=tf.argmax(labels, 1),
+            predictions=tf.argmax(preds, 1),
+            num_classes=self.num_classes,
+            name="batch_conf")
+        # Create an accumulator variable to hold the counts
+        confusion = tf.Variable(
+            tf.zeros([self.num_classes, self.num_classes],dtype=tf.int32),
+            collections=[tf.GraphKeys.LOCAL_VARIABLES],
+            name=name+"_conf")
+        # Create the update op for doing a "+=" accumulation on the batch
+        confusion_update = confusion.assign(confusion + batch_confusion)
+        return confusion, confusion_update
 
     def predict(self):
         if self.sigmoid_loss:
