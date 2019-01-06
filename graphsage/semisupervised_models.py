@@ -147,10 +147,10 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
 
         self.confusion_read, self.confusion = self._confusion(name="train")
         self.confusion_read_val, self.confusion_val = self._confusion(name="val")
-        self.precision_read, self.precision = self._precision(name="train")
-        self.precision_read_val, self.precision_val = self._precision(name="val")
-        self.recall_read, self.recall = self._recall(name="train")
-        self.recall_read_val, self.recall_val = self._recall(name="val")
+        self.precision_read, self.precision = self._precision(name="train", pos_value=self.placeholders['pos_class'])
+        self.precision_read_val, self.precision_val = self._precision(name="val", pos_value=self.placeholders['pos_class'])
+        self.recall_read, self.recall = self._recall(name="train", pos_value=self.placeholders['pos_class'])
+        self.recall_read_val, self.recall_val = self._recall(name="val", pos_value=self.placeholders['pos_class'])
         self.f1_read = self._f1(precision=self.precision_read, recall=self.recall_read)
         self.f1 = self._f1(precision=self.precision, recall=self.recall)
         self.f1_read_val = self._f1(precision=self.precision_read_val, recall=self.recall_read_val)
@@ -215,23 +215,21 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
             name=name+"_acc")
         return acc, acc_op
 
-    def _precision(self, name):
+    def _precision(self, name, pos_value=1):
         labels = self.placeholders['labels']
         preds = self.preds
-        # acc, acc_op = tf.metrics.accuracy(labels, preds)
         prec, prec_op = tf.metrics.precision(
-            labels=tf.argmax(labels, 1),
-            predictions=tf.argmax(preds, 1),
+            labels=tf.equal(tf.cast(tf.argmax(labels, 1), tf.int32), pos_value),
+            predictions=tf.equal(tf.cast(tf.argmax(preds, 1), tf.int32), pos_value),
             name=name+"_prec")
         return prec, prec_op
 
-    def _recall(self, name):
+    def _recall(self, name, pos_value=1):
         labels = self.placeholders['labels']
         preds = self.preds
-        # acc, acc_op = tf.metrics.accuracy(labels, preds)
         rec, rec_op = tf.metrics.recall(
-            labels=tf.argmax(labels, 1),
-            predictions=tf.argmax(preds, 1),
+            labels=tf.equal(tf.cast(tf.argmax(labels, 1), tf.int32), pos_value),
+            predictions=tf.equal(tf.cast(tf.argmax(preds, 1), tf.int32), pos_value),
             name=name+"_rec")
         return rec, rec_op
 
@@ -256,7 +254,7 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
         # Create an accumulator variable to hold the counts
         confusion = tf.Variable(
             tf.zeros([self.num_classes, self.num_classes],dtype=tf.int32),
-            collections=[tf.GraphKeys.LOCAL_VARIABLES],
+            collections=[tf.GraphKeys.LOCAL_VARIABLES], # make it a local variable
             name=name+"_conf")
         # Create the update op for doing a "+=" accumulation on the batch
         confusion_update = confusion.assign(confusion + batch_confusion)
