@@ -111,8 +111,8 @@ def evaluate(sess, model, minibatch_iter, size=None, supervised=False):
     ops = [loss, model.ranks, model.mrr]
     if supervised:
         feed_dict_val.update({placeholders['pos_class']: FLAGS.pos_class})
-        ops.extend([model.accuracy_val, model.f1_val, model.preds])
-        loss, ranks, mrr, acc, f1, preds = sess.run(ops, feed_dict=feed_dict_val)
+        ops.extend([model.accuracy_val, model.f1_val, model.confusion_val, model.preds])
+        loss, ranks, mrr, acc, f1, conf, preds = sess.run(ops, feed_dict=feed_dict_val)
     else:
         loss, ranks, mrr = sess.run(ops, feed_dict=feed_dict_val)
         acc = f1 = None
@@ -346,11 +346,14 @@ def train(train_data, test_data=None):
         summary_train_mrr = tf.summary.scalar('mrr', model.mrr)
         summary_train_acc = tf.summary.scalar('accuracy', model.accuracy)
         summary_train_f1 = tf.summary.scalar('f1 score', model.f1)
+        summary_train_confusion = tf.summary.image('confusion',
+            tf.reshape(tf.cast(model.confusion_read,tf.float32), [1,num_classes,num_classes,1]))
         summary_train_sup = tf.summary.merge([
             summary_train_loss_sup,
             summary_train_mrr,
             summary_train_acc,
-            summary_train_f1])
+            summary_train_f1,
+            summary_train_confusion])
         summary_train_unsup = tf.summary.merge([
             summary_train_loss_unsup,
             summary_train_mrr])
@@ -360,12 +363,15 @@ def train(train_data, test_data=None):
         summary_val_mrr = tf.summary.scalar('mrr', model.mrr)
         summary_val_acc = tf.summary.scalar('accuracy', model.accuracy_read_val) # only read the already computed validation accuracy
         summary_val_f1 = tf.summary.scalar('f1 score', model.f1_read_val) # only read the already computed validation f1 score
+        summary_val_confusion = tf.summary.image('confusion',
+            tf.reshape(tf.cast(model.confusion_read_val,tf.float32), [1,num_classes,num_classes,1]))
         summary_val = tf.summary.merge([
             summary_val_loss_sup,
             summary_val_loss_unsup,
             summary_val_mrr,
             summary_val_acc,
-            summary_val_f1])
+            summary_val_f1,
+            summary_val_confusion])
     summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
 
     # Init variables
