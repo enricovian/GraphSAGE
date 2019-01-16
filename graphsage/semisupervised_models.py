@@ -140,13 +140,19 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
         size = tf.shape(self.aff_all)[1]
         _, indices_of_ranks = tf.nn.top_k(self.aff_all, k=size)
         _, self.ranks = tf.nn.top_k(-indices_of_ranks, k=size)
+        # MRR: mean reciprocal rank, the rank for each item is given by the comparison
+        # of the positive affinity score with the negative ones.
+        # For example if neg_aff=[0.12,0.33,0.05] and aff=0.26, then the affinity
+        # ranks will be ranks=[2,0,3,1] and (ranks[-1]+1)=2.
         self.mrr = tf.reduce_mean(tf.div(1.0, tf.cast(self.ranks[:, -1] + 1, tf.float32)))
         # 'read' vars return the computed value so far without altering the local streaming variables
+        # accuracy
         self.accuracy_read, self.accuracy = self._accuracy(name="train")
         self.accuracy_read_val, self.accuracy_val = self._accuracy(name="val")
-
+        # confusion matrix
         self.confusion_read, self.confusion = self._confusion(name="train")
         self.confusion_read_val, self.confusion_val = self._confusion(name="val")
+        # precision, recall and f1 values
         self.precision_read, self.precision = self._precision(name="train", pos_value=self.placeholders['pos_class'])
         self.precision_read_val, self.precision_val = self._precision(name="val", pos_value=self.placeholders['pos_class'])
         self.recall_read, self.recall = self._recall(name="train", pos_value=self.placeholders['pos_class'])

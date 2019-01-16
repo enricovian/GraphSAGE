@@ -3,6 +3,7 @@ from __future__ import print_function
 
 import os
 import time
+from termcolor import colored
 import tensorflow as tf
 import numpy as np
 import sklearn
@@ -14,6 +15,7 @@ from graphsage.minibatch import SupervisedEdgeMinibatchIterator
 from graphsage.neigh_samplers import UniformNeighborSampler
 from graphsage.models import SAGEInfo
 from graphsage.semisupervised_models import SemiSupervisedGraphsage
+from graphsage.formatter import PartialFormatter
 
 
 
@@ -84,6 +86,32 @@ def get_log_dir():
         os.makedirs(log_dir)
     return log_dir
 
+def print_iter(type, epoch, iter, total_steps, loss_sup=None, loss_unsup=None, mrr=None, f1=None):
+    fmt=PartialFormatter(missing='-', missing_spec="7s")
+    data = {
+        'type': type,
+        'epoch': epoch,
+        'iter': iter,
+        'total_steps': total_steps,
+        'loss_sup': loss_sup,
+        'loss_unsup': loss_unsup,
+        'mrr': mrr,
+        'f1': f1,
+        'time': time.strftime("%y.%m.%d-%H:%M:%S")
+    }
+    line = fmt.format("""[{type:3.3s} {epoch:02d}/{iter:04d} - {total_steps:05d}] [{time:s}] \
+loss-sup: {loss_sup:07.4f} loss-unsup: {loss_unsup:07.4f} mrr: {mrr:07.4f} f1-score: {f1:07.4f}""",
+        **data)
+    if type == "VAL":
+        color = "red"
+    elif type == "SUP":
+        color = "yellow"
+    elif type == "UNS":
+        color = "green"
+    else:
+        color = "grey"
+    print(colored(line, color))
+
 # not used
 def calc_f1(y_true, y_pred, ignore_missing=False):
     """ Compute f1 scores
@@ -112,11 +140,12 @@ def evaluate(sess, model, minibatch_iter, size=None, supervised=False):
     if supervised:
         feed_dict_val.update({placeholders['pos_class']: FLAGS.pos_class})
         ops.extend([model.accuracy_val, model.f1_val, model.confusion_val, model.preds])
-        loss, ranks, mrr, acc, f1, conf, preds = sess.run(ops, feed_dict=feed_dict_val)
+        loss_sup, ranks, mrr, acc, f1, conf, preds = sess.run(ops, feed_dict=feed_dict_val)
+        loss_unsup = None
     else:
-        loss, ranks, mrr = sess.run(ops, feed_dict=feed_dict_val)
-        acc = f1 = None
-    return loss, ranks, mrr, acc, f1, (time.time() - t_test)
+        loss_unsup, ranks, mrr = sess.run(ops, feed_dict=feed_dict_val)
+        acc = f1 = loss_sup = None
+    return loss_sup, loss_unsup, mrr, acc, f1, (time.time() - t_test)
 
 # evaluate the whole validation set
 def incremental_evaluate(sess, model, minibatch_iter, size):
@@ -381,7 +410,6 @@ def train(train_data, test_data=None):
 
     total_steps = 0
     avg_time = 0.0
-    epoch_val_costs = []
 
     train_adj_info = tf.assign(adj_info, minibatch.adj)
     val_adj_info = tf.assign(adj_info, minibatch.test_adj)
@@ -394,7 +422,6 @@ def train(train_data, test_data=None):
 
         iter = 0
         print('Epoch: %04d' % (epoch + 1))
-        epoch_val_costs.append(0)
 
         while not (minibatch.end() and (minibatch.end_sup() or FLAGS.supervised_ratio==0)):
             # define supervised or unsupervised training
@@ -444,13 +471,13 @@ def train(train_data, test_data=None):
                 # Validation
                 sess.run(val_adj_info.op)
                 if FLAGS.validate_batch_size == -1:
-                    val_cost, val_ranks, val_mrr, val_acc, val_f1, duration = incremental_evaluate(
+                    val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, duration = incremental_evaluate(
                         sess,
                         model,
                         minibatch,
                         FLAGS.batch_size)
                 else:
-                    val_cost, val_ranks, val_mrr, val_acc, val_f1, duration = evaluate(
+                    val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, duration = evaluate(
                         sess,
                         model,
                         minibatch,
@@ -461,8 +488,10 @@ def train(train_data, test_data=None):
                 summary_val_out = sess.run(summary_val, feed_dict=feed_dict)
                 summary_writer.add_summary(summary_val_out, total_steps)
 
+                # print validation stats
+                print_iter("VAL", epoch+1, iter, total_steps, val_cost_sup, val_cost_unsup, val_mrr, val_f1)
+
                 sess.run(train_adj_info.op)
-                epoch_val_costs[-1] += val_cost
 
             # log train summary
             summary_writer.add_summary(summary, total_steps)
@@ -472,17 +501,15 @@ def train(train_data, test_data=None):
 
             # Print training iteration results
             if total_steps % FLAGS.print_every == 0:
-                print(("[S]" if supervised else "[U]"),
-                      "Iter:", '%04d' % iter,
-                      "train_loss=", "{:.5f}".format(train_cost),
-                      "train_mrr=", "{:.5f}".format(train_mrr),
-                      # "val_loss=", "{:.5f}".format(val_cost),
-                      # "val_mrr=", "{:.5f}".format(val_mrr),
-                      "accuracy=", "{:.5f}".format(sess.run(model.accuracy_read, feed_dict=feed_dict)),
-                      "precision=", "{:.5f}".format(sess.run(model.precision_read, feed_dict=feed_dict)),
-                      "recall=", "{:.5f}".format(sess.run(model.recall_read, feed_dict=feed_dict)),
-                      "f1-score=", "{:.5f}".format(sess.run(model.f1_read, feed_dict=feed_dict)),
-                      "time=", "{:.5f}".format(avg_time))
+                print_iter(
+                    type=("SUP" if supervised else "UNS"),
+                    epoch=epoch+1,
+                    iter=iter,
+                    total_steps=total_steps,
+                    loss_sup=(train_cost if supervised else None),
+                    loss_unsup=(None if supervised else train_cost),
+                    mrr=train_mrr,
+                    f1=sess.run(model.f1_read, feed_dict=feed_dict))
 
             # update counters
             iter += 1
