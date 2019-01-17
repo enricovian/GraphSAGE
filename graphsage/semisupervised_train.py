@@ -12,7 +12,7 @@ from sklearn import metrics
 from graphsage.utils import load_data
 from graphsage.minibatch import NodeMinibatchIterator
 from graphsage.minibatch import SupervisedEdgeMinibatchIterator
-from graphsage.neigh_samplers import UniformNeighborSampler
+from graphsage.neigh_samplers import UniformNeighborSampler, LabelAssistedNeighborSampler
 from graphsage.models import SAGEInfo
 from graphsage.semisupervised_models import SemiSupervisedGraphsage
 from graphsage.formatter import PartialFormatter
@@ -34,6 +34,7 @@ tf.app.flags.DEFINE_boolean('log_device_placement', False,
                             """Whether to log device placement.""")
 #core params..
 flags.DEFINE_string('model', 'graphsage_mean', 'model names. See README for possible values.')
+flags.DEFINE_string('sampler', 'uniform', 'sampler to be used. See README for possible values.')
 flags.DEFINE_float('learning_rate', 0.01, 'initial learning rate.')
 flags.DEFINE_string("model_size", "small", "Can be big or small; model specific def'ns")
 flags.DEFINE_string('train_prefix', '', 'prefix identifying training data. must be specified.')
@@ -54,8 +55,8 @@ flags.DEFINE_integer('batch_size', 512, 'minibatch size.')
 flags.DEFINE_boolean('sigmoid', False, 'whether to use sigmoid loss')
 flags.DEFINE_integer('identity_dim', 0, 'Set to positive value to use identity embedding features of that dimension. Default 0.')
 flags.DEFINE_float('supervised_ratio', 0.5, 'Probability to perform a supervised training iteration instead of an unsupervised one.')
-flags.DEFINE_boolean('label_edges', False, 'If true the aggregation considers nodes with the same label as neighbors.')
 flags.DEFINE_integer('pos_class', 1, 'Class number to be considered as positive when computing evaluation metrics (e.g precision).')
+flags.DEFINE_float('topology_label_ratio', 0.5, 'ratio of topological neighbors and nodes sharing the same class (used for label_assisted sampler).')
 
 #logging, saving, validation settings etc.
 flags.DEFINE_boolean('save_embeddings', True, 'whether to save embeddings for all nodes after training')
@@ -244,15 +245,22 @@ def train(train_data, test_data=None):
             num_classes,
             batch_size=FLAGS.batch_size,
             max_degree=FLAGS.max_degree,
-            context_pairs=context_pairs,
-            label_edges=FLAGS.label_edges)
+            context_pairs=context_pairs)
     adj_info_ph = tf.placeholder(tf.int32, shape=minibatch.adj.shape)
     adj_info = tf.Variable(adj_info_ph, trainable=False, name="adj_info")
+    label_adj_info_ph = tf.placeholder(tf.int32, shape=minibatch.label_adj.shape)
+    label_adj_info = tf.Variable(label_adj_info_ph, trainable=False, name="label_adj_info")
 
+
+    # Neighbors sampler
+    if FLAGS.sampler == 'uniform':
+        sampler = UniformNeighborSampler(adj_info)
+    elif FLAGS.sampler == 'label_assisted':
+        sampler = LabelAssistedNeighborSampler(adj_info, label_adj_info, FLAGS.topology_label_ratio)
+    else:
+        raise Exception('Error: sampler name unrecognized.')
 
     if FLAGS.model == 'graphsage_mean':
-        # Neighbors sampler
-        sampler = UniformNeighborSampler(adj_info)
         # Layers definitions
         if FLAGS.samples_3 != 0:
             layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1),
@@ -278,8 +286,6 @@ def train(train_data, test_data=None):
             logging=True
         )
     elif FLAGS.model == 'gcn':
-        # Neighbors sampler
-        sampler = UniformNeighborSampler(adj_info)
         # Layers definitions
         layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, 2*FLAGS.dim_1),
                        SAGEInfo("node", sampler, FLAGS.samples_2, 2*FLAGS.dim_2)]
@@ -299,8 +305,6 @@ def train(train_data, test_data=None):
             logging=True
         )
     elif FLAGS.model == 'graphsage_seq':
-        # Neighbors sampler
-        sampler = UniformNeighborSampler(adj_info)
         # Layers definitions
         layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1),
                        SAGEInfo("node", sampler, FLAGS.samples_2, FLAGS.dim_2)]
@@ -319,8 +323,6 @@ def train(train_data, test_data=None):
             logging=True
         )
     elif FLAGS.model == 'graphsage_maxpool':
-        # Neighbors sampler
-        sampler = UniformNeighborSampler(adj_info)
         # Layers definitions
         layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1),
                        SAGEInfo("node", sampler, FLAGS.samples_2, FLAGS.dim_2)]
@@ -339,8 +341,6 @@ def train(train_data, test_data=None):
             logging=True
         )
     elif FLAGS.model == 'graphsage_meanpool':
-        # Neighbors sampler
-        sampler = UniformNeighborSampler(adj_info)
         # Layers definitions
         layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1),
                        SAGEInfo("node", sampler, FLAGS.samples_2, FLAGS.dim_2)]
@@ -404,7 +404,8 @@ def train(train_data, test_data=None):
     summary_writer = tf.summary.FileWriter(log_dir, sess.graph)
 
     # Init variables
-    sess.run(tf.global_variables_initializer(), feed_dict={adj_info_ph: minibatch.adj})
+    sess.run(tf.global_variables_initializer(),
+        feed_dict={adj_info_ph: minibatch.adj, label_adj_info_ph: minibatch.label_adj})
 
     # Train model
 
@@ -413,6 +414,8 @@ def train(train_data, test_data=None):
 
     train_adj_info = tf.assign(adj_info, minibatch.adj)
     val_adj_info = tf.assign(adj_info, minibatch.test_adj)
+    train_label_adj_info = tf.assign(label_adj_info, minibatch.label_adj)
+    val_label_adj_info = tf.assign(label_adj_info, minibatch.test_label_adj)
     for epoch in range(FLAGS.epochs):
         minibatch.shuffle() # shuffle the minibatches
 
@@ -469,7 +472,7 @@ def train(train_data, test_data=None):
 
             if iter % FLAGS.validate_iter == 0:
                 # Validation
-                sess.run(val_adj_info.op)
+                sess.run([val_adj_info.op, val_label_adj_info.op])
                 if FLAGS.validate_batch_size == -1:
                     val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, duration = incremental_evaluate(
                         sess,
@@ -491,7 +494,7 @@ def train(train_data, test_data=None):
                 # print validation stats
                 print_iter("VAL", epoch+1, iter, total_steps, val_cost_sup, val_cost_unsup, val_mrr, val_f1)
 
-                sess.run(train_adj_info.op)
+                sess.run([train_adj_info.op, train_label_adj_info.op])
 
             # log train summary
             summary_writer.add_summary(summary, total_steps)
@@ -524,7 +527,7 @@ def train(train_data, test_data=None):
     print("Optimization Finished!")
 
     # compute final validation results
-    sess.run(val_adj_info.op)
+    sess.run([val_adj_info.op, val_label_adj_info.op])
     val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
 
     # log final results
@@ -549,7 +552,7 @@ def train(train_data, test_data=None):
 
     if FLAGS.save_embeddings:
         print("Saving embeddings..")
-        sess.run(val_adj_info.op)
+        sess.run([val_adj_info.op, val_label_adj_info.op])
         save_val_embeddings(sess, model, minibatch, FLAGS.validate_batch_size, log_dir)
 
 def main(argv=None):

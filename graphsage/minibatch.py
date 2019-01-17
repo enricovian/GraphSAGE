@@ -340,11 +340,10 @@ class SupervisedEdgeMinibatchIterator(object):
     max_degree -- maximum size of the downsampled adjacency lists
     n2v_retrain -- signals that the iterator is being used to add new embeddings to a n2v model
     fixed_n2v -- signals that the iterator is being used to retrain n2v with only existing nodes as context
-    label_edges -- construct edges between nodes with the same label
     """
     def __init__(self, G, id2idx, placeholders, label_map, num_classes,
         context_pairs=None, batch_size=100, max_degree=25, n2v_retrain=False,
-        fixed_n2v=False, label_edges=False, **kwargs):
+        fixed_n2v=False, **kwargs):
 
         self.G = G
         self.nodes = G.nodes()
@@ -364,14 +363,14 @@ class SupervisedEdgeMinibatchIterator(object):
         self.adj, self.deg = self.construct_adj()
         self.test_adj = self.construct_test_adj()
 
-        if label_edges:
-            new_edges = []
-            for node1 in self.labeled_nodes:
-                for node2 in self.labeled_nodes:
-                    if self.label_map[node1] == self.label_map[node2]:
-                        new_edges.append((node1, node2))
-            G.add_edges_from(new_edges)
-            print("Added {} new edges between nodes with the same label".format(len(new_edges)))
+        classes_dict = {}
+        for node in self.labeled_nodes:
+            try:
+                classes_dict[np.argmax(self.label_map[node])].append(node)
+            except KeyError as e:
+                classes_dict[np.argmax(self.label_map[node])] = [node]
+        self.label_adj, self.label_deg = self.construct_label_adj(classes_dict)
+        self.test_label_adj = self.construct_test_label_adj(classes_dict)
 
         train_nodes = [n for n in G.nodes() if not G.node[n]['test'] and not G.node[n]['val']]
         test_nodes = [n for n in G.nodes() if G.node[n]['test'] or G.node[n]['val']]
@@ -458,6 +457,47 @@ class SupervisedEdgeMinibatchIterator(object):
         for nodeid in self.G.nodes():
             neighbors = np.array([self.id2idx[neighbor]
                 for neighbor in self.G.neighbors(nodeid)])
+            if len(neighbors) == 0:
+                continue
+            if len(neighbors) > self.max_degree:
+                neighbors = np.random.choice(neighbors, self.max_degree, replace=False)
+            elif len(neighbors) < self.max_degree:
+                neighbors = np.random.choice(neighbors, self.max_degree, replace=True)
+            adj[self.id2idx[nodeid], :] = neighbors
+        return adj
+
+    def construct_label_adj(self, classes_dict):
+        """
+            Returns a matrix associating every node with nodes of the same class.
+            Nodes not belonging to any class are simply associated to neighborhoods
+            instead.
+        """
+        adj = self.adj # base values are the same as adjacency matrix
+        deg = np.zeros((len(self.id2idx),))
+
+        for nodeid in self.labeled_nodes:
+            if self.G.node[nodeid]['test'] or self.G.node[nodeid]['val']:
+                continue
+            neighbors = np.array([id != nodeid for id in classes_dict[np.argmax(self.label_map[nodeid])]])
+            deg[self.id2idx[nodeid]] = len(neighbors)
+            if len(neighbors) == 0:
+                continue
+            if len(neighbors) > self.max_degree:
+                neighbors = np.random.choice(neighbors, self.max_degree, replace=False)
+            elif len(neighbors) < self.max_degree:
+                neighbors = np.random.choice(neighbors, self.max_degree, replace=True)
+            adj[self.id2idx[nodeid], :] = neighbors
+        return adj, deg
+
+    def construct_test_label_adj(self, classes_dict):
+        """
+            Returns a matrix associating every node with nodes of the same class.
+            Nodes not belonging to any class are simply associated to neighborhoods
+            instead.
+        """
+        adj = self.test_adj # base values are the same as adjacency matrix
+        for nodeid in self.G.nodes():
+            neighbors = np.array([id != nodeid for id in classes_dict[np.argmax(self.label_map[nodeid])]])
             if len(neighbors) == 0:
                 continue
             if len(neighbors) > self.max_degree:

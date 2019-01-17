@@ -18,7 +18,7 @@ To support this use case, GraphSage now includes optional "identity features" th
 Including identity features will increase the runtime, but also potentially increase performance (at the usual risk of overfitting).
 See the section on "Running the code" below.
 
-*Note:* GraphSage is intended for use on large graphs (>100,000) nodes. The overhead of subsampling will start to outweigh its benefits on smaller graphs. 
+*Note:* GraphSage is intended for use on large graphs (>100,000) nodes. The overhead of subsampling will start to outweigh its benefits on smaller graphs.
 
 The example_data subdirectory contains a small example of the protein-protein interaction data,
 which includes 3 training graphs + one validation graph and one test graph.
@@ -57,7 +57,7 @@ or start a Jupyter Notebook instead of bash:
 You can also run the GPU image using [nvidia-docker](https://github.com/NVIDIA/nvidia-docker):
 
 	$ docker build -t graphsage:gpu -f Dockerfile.gpu .
-	$ nvidia-docker run -it graphsage:gpu bash	
+	$ nvidia-docker run -it graphsage:gpu bash
 
 ### Running the code
 
@@ -86,6 +86,11 @@ As input, at minimum the code requires that a --train_prefix option is specified
 To run the model on a new dataset, you need to make data files in the format described above.
 To run random walks for the unsupervised model and to generate the <prefix>-walks.txt file)
 you can use the `run_walks` function in `graphsage.utils`.
+
+#### Sampler variants
+The --sampler flag allows the user to specify how to sample a node neighborhood:
+* uniform -- simple uniform sample among the adjacent nodes
+* label_assisted -- it samples from both structural neighbors and nodes with the same label (when present) based on the ratio specified by the --topology_label_ratio flag
 
 #### Model variants
 The user must also specify a --model, the variants of which are described in detail in the paper:
