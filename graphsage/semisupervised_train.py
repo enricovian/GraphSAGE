@@ -66,6 +66,7 @@ flags.DEFINE_integer('validate_batch_size', 256, "how many nodes per validation 
 flags.DEFINE_integer('gpu', 1, "which gpu to use.")
 flags.DEFINE_integer('print_every', 5, "How often to print training info.")
 flags.DEFINE_integer('max_total_steps', 10**10, "Maximum total number of iterations")
+flags.DEFINE_boolean('print_confusion', False, 'print confusion matrix for supervised iterations and validation')
 flags.DEFINE_string('note', '', 'Optional experiment note to append to log directory')
 
 os.environ["CUDA_VISIBLE_DEVICES"]=str(FLAGS.gpu)
@@ -87,7 +88,7 @@ def get_log_dir():
         os.makedirs(log_dir)
     return log_dir
 
-def print_iter(type, epoch, iter, total_steps, loss_sup=None, loss_unsup=None, mrr=None, f1=None):
+def print_iter(type, epoch, iter, total_steps, loss_sup=None, loss_unsup=None, mrr=None, f1=None, accuracy=None, confusion=None):
     fmt=PartialFormatter(missing='-', missing_spec="7s")
     data = {
         'type': type,
@@ -98,11 +99,12 @@ def print_iter(type, epoch, iter, total_steps, loss_sup=None, loss_unsup=None, m
         'loss_unsup': loss_unsup,
         'mrr': mrr,
         'f1': f1,
+        'accuracy': accuracy,
         'time': time.strftime("%y.%m.%d-%H:%M:%S")
     }
     line = fmt.format("""[{type:3.3s} {epoch:02d}/{iter:04d} - {total_steps:05d}] [{time:s}] \
-loss-sup: {loss_sup:07.4f} loss-unsup: {loss_unsup:07.4f} mrr: {mrr:07.4f} f1-score: {f1:07.4f}""",
-        **data)
+loss-sup: {loss_sup:07.4f} loss-unsup: {loss_unsup:07.4f} mrr: {mrr:07.4f} f1-score: {f1:07.4f} \
+accuracy: {accuracy:07.4f}""", **data)
     if type == "VAL":
         color = "red"
     elif type == "SUP":
@@ -112,6 +114,8 @@ loss-sup: {loss_sup:07.4f} loss-unsup: {loss_unsup:07.4f} mrr: {mrr:07.4f} f1-sc
     else:
         color = "grey"
     print(colored(line, color))
+    if (confusion is not None and FLAGS.print_confusion):
+        print(colored(confusion, color))
 
 # not used
 def calc_f1(y_true, y_pred, ignore_missing=False):
@@ -140,13 +144,13 @@ def evaluate(sess, model, minibatch_iter, size=None, supervised=False):
     ops = [loss, model.ranks, model.mrr]
     if supervised:
         feed_dict_val.update({placeholders['pos_class']: FLAGS.pos_class})
-        ops.extend([model.accuracy_val, model.f1_val, model.confusion_val, model.preds])
-        loss_sup, ranks, mrr, acc, f1, conf, preds = sess.run(ops, feed_dict=feed_dict_val)
+        ops.extend([model.accuracy_val, model.f1_val, model.confusion_val, model.preds, model.confusion_val])
+        loss_sup, ranks, mrr, acc, f1, conf, preds, confusion = sess.run(ops, feed_dict=feed_dict_val)
         loss_unsup = None
     else:
         loss_unsup, ranks, mrr = sess.run(ops, feed_dict=feed_dict_val)
-        acc = f1 = loss_sup = None
-    return loss_sup, loss_unsup, mrr, acc, f1, (time.time() - t_test)
+        acc = f1 = loss_sup = confusion = None
+    return loss_sup, loss_unsup, mrr, acc, f1, confusion, (time.time() - t_test)
 
 # evaluate the whole validation set
 def incremental_evaluate(sess, model, minibatch_iter, size):
@@ -159,6 +163,7 @@ def incremental_evaluate(sess, model, minibatch_iter, size):
     iter_num = 0
     accuracy = None
     f1 = None
+    confusion = None
 
     while not finished:
         feed_dict_val, labels, finished, _ = minibatch_iter.incremental_val_feed_dict_sup(size, iter_num, duplicates=False)
@@ -177,7 +182,10 @@ def incremental_evaluate(sess, model, minibatch_iter, size):
                             feed_dict=feed_dict_val)
         val_losses_unsup.append(outs_val[0])
         val_mrrs.append(outs_val[2])
-    return np.mean(val_losses_sup), np.mean(val_losses_unsup), np.mean(val_mrrs), accuracy, f1, (time.time() - t_test)
+    loss_sup = np.mean(val_losses_sup)
+    loss_unsup = np.mean(val_losses_unsup)
+    mrr = np.mean(val_mrrs)
+    return loss_sup, loss_unsup, mrr, accuracy, f1, confusion, (time.time() - t_test)
 
 def construct_placeholders(num_classes):
     # Define placeholders
@@ -474,13 +482,13 @@ def train(train_data, test_data=None):
                 # Validation
                 sess.run([val_adj_info.op, val_label_adj_info.op])
                 if FLAGS.validate_batch_size == -1:
-                    val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, duration = incremental_evaluate(
+                    val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, val_confusion, duration = incremental_evaluate(
                         sess,
                         model,
                         minibatch,
                         FLAGS.batch_size)
                 else:
-                    val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, duration = evaluate(
+                    val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, val_confusion, duration = evaluate(
                         sess,
                         model,
                         minibatch,
@@ -492,7 +500,17 @@ def train(train_data, test_data=None):
                 summary_writer.add_summary(summary_val_out, total_steps)
 
                 # print validation stats
-                print_iter("VAL", epoch+1, iter, total_steps, val_cost_sup, val_cost_unsup, val_mrr, val_f1)
+                print_iter(
+                    type="VAL",
+                    epoch=epoch+1,
+                    iter=iter,
+                    total_steps=total_steps,
+                    loss_sup=val_cost_sup,
+                    loss_unsup=val_cost_unsup,
+                    mrr=val_mrr,
+                    f1=val_f1,
+                    accuracy=val_acc,
+                    confusion=val_confusion)
 
                 sess.run([train_adj_info.op, train_label_adj_info.op])
 
@@ -512,7 +530,9 @@ def train(train_data, test_data=None):
                     loss_sup=(train_cost if supervised else None),
                     loss_unsup=(None if supervised else train_cost),
                     mrr=train_mrr,
-                    f1=sess.run(model.f1_read, feed_dict=feed_dict))
+                    f1=(sess.run(model.f1_read, feed_dict=feed_dict) if supervised else None),
+                    accuracy=(sess.run(model.accuracy_read, feed_dict=feed_dict) if supervised else None),
+                    confusion=(confusion if supervised else None))
 
             # update counters
             iter += 1
@@ -528,7 +548,7 @@ def train(train_data, test_data=None):
 
     # compute final validation results
     sess.run([val_adj_info.op, val_label_adj_info.op])
-    val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
+    val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, val_confusion, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
 
     # log final results
     summary_val_out = sess.run(summary_val, feed_dict=feed_dict)
@@ -542,7 +562,8 @@ def train(train_data, test_data=None):
           "\taccuracy=", "{:.5f}".format(val_acc), "\n",
           "\tf1-score=", "{:.5f}".format(val_f1), "\n",
           "\tevaluation time=", "{:.5f}".format(duration))
-
+    if FLAGS.print_confusion:
+        print("confusion= \n{:s}".format(val_confusion))
     # write an output file
     with open(log_dir + "val_stats.txt", "w") as fp:
         fp.write("supervised_loss={:.5f}, unsupervised_loss={:.5f}, mrr={:.5f}, accuracy={:.5f}, f1-score={:.5f}, evaluation_time={:.5f}".
