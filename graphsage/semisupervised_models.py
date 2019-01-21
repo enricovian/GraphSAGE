@@ -132,19 +132,8 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
         self.preds = self.predict()
 
         # compute relevant metrics
-        aff = self.link_pred_layer.affinity(self.outputs, self.outputs_pos) # affinity
-        self.neg_aff = self.link_pred_layer.neg_cost(self.outputs, self.outputs_neg)
-        self.neg_aff = tf.reshape(self.neg_aff, [self.batch_size, FLAGS.neg_sample_size])
-        _aff = tf.expand_dims(aff, axis=1)
-        self.aff_all = tf.concat(axis=1, values=[self.neg_aff, _aff])
-        size = tf.shape(self.aff_all)[1]
-        _, indices_of_ranks = tf.nn.top_k(self.aff_all, k=size)
-        _, self.ranks = tf.nn.top_k(-indices_of_ranks, k=size)
-        # MRR: mean reciprocal rank, the rank for each item is given by the comparison
-        # of the positive affinity score with the negative ones.
-        # For example if neg_aff=[0.12,0.33,0.05] and aff=0.26, then the affinity
-        # ranks will be ranks=[2,0,3,1] and (ranks[-1]+1)=2.
-        self.mrr = tf.reduce_mean(tf.div(1.0, tf.cast(self.ranks[:, -1] + 1, tf.float32)))
+        # mrr
+        self.mrr = self._mrr(name="train")
         # 'read' vars return the computed value so far without altering the local streaming variables
         # accuracy
         self.accuracy_read, self.accuracy = self._accuracy(name="train")
@@ -265,6 +254,30 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
         # Create the update op for doing a "+=" accumulation on the batch
         confusion_update = confusion.assign(confusion + batch_confusion)
         return confusion, confusion_update
+
+    def _mrr(self, name):
+        """ MRR: mean reciprocal rank.
+
+            The rank for each item is given by the comparison
+            of the positive affinity score with the negative ones.
+            For example if neg_aff=[0.12,0.33,0.05] and aff=0.26, then the affinity
+            ranks will be ranks=[2,0,3,1] and (ranks[-1]+1)=2.
+
+            The mrr is therefore given by the mean of reciprocal positive ranks.
+        """
+        # compute affinities
+        aff = self.link_pred_layer.affinity(self.outputs, self.outputs_pos) # affinity
+        neg_aff = self.link_pred_layer.neg_cost(self.outputs, self.outputs_neg)
+        neg_aff = tf.reshape(neg_aff, [self.batch_size, FLAGS.neg_sample_size])
+        _aff = tf.expand_dims(aff, axis=1)
+        aff_all = tf.concat(axis=1, values=[neg_aff, _aff])
+        # compute positive affinities ranks
+        size = tf.shape(aff_all)[1]
+        _, indices_of_ranks = tf.nn.top_k(aff_all, k=size)
+        _, ranks = tf.nn.top_k(-indices_of_ranks, k=size)
+        # compute mrr for the batch
+        batch_mrr = tf.reduce_mean(tf.div(1.0, tf.cast(ranks[:, -1] + 1, tf.float32)))
+        return batch_mrr
 
     def predict(self):
         if self.sigmoid_loss:

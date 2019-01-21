@@ -141,14 +141,14 @@ def evaluate(sess, model, minibatch_iter, size=None, supervised=False):
     loss = model.loss_sup if supervised else model.loss_unsup
     feed_dict_val, labels = (minibatch_iter.val_feed_dict_sup(size) if supervised else
         minibatch_iter.val_feed_dict(size))
-    ops = [loss, model.ranks, model.mrr]
+    ops = [loss, model.mrr]
     if supervised:
         feed_dict_val.update({placeholders['pos_class']: FLAGS.pos_class})
         ops.extend([model.accuracy_val, model.f1_val, model.confusion_val, model.preds, model.confusion_val])
-        loss_sup, ranks, mrr, acc, f1, conf, preds, confusion = sess.run(ops, feed_dict=feed_dict_val)
+        loss_sup, mrr, acc, f1, conf, preds, confusion = sess.run(ops, feed_dict=feed_dict_val)
         loss_unsup = None
     else:
-        loss_unsup, ranks, mrr = sess.run(ops, feed_dict=feed_dict_val)
+        loss_unsup, mrr = sess.run(ops, feed_dict=feed_dict_val)
         acc = f1 = loss_sup = confusion = None
     return loss_sup, loss_unsup, mrr, acc, f1, confusion, (time.time() - t_test)
 
@@ -178,10 +178,10 @@ def incremental_evaluate(sess, model, minibatch_iter, size):
     while not finished:
         feed_dict_val, _, finished, _ = minibatch_iter.incremental_val_feed_dict(size, iter_num)
         iter_num += 1
-        outs_val = sess.run([model.loss_unsup, model.ranks, model.mrr],
+        loss_unsup, mrr = sess.run([model.loss_unsup, model.mrr],
                             feed_dict=feed_dict_val)
-        val_losses_unsup.append(outs_val[0])
-        val_mrrs.append(outs_val[2])
+        val_losses_unsup.append(loss_unsup)
+        val_mrrs.append(mrr)
     loss_sup = np.mean(val_losses_sup)
     loss_unsup = np.mean(val_losses_unsup)
     mrr = np.mean(val_mrrs)
@@ -377,6 +377,10 @@ def train(train_data, test_data=None):
     # Initialize session
     log_dir = get_log_dir()
     sess = tf.Session(config=config)
+
+    val_loss_sup = tf.Variable(0., trainable=False, name="val_loss_sup")
+    val_loss_unsup = tf.Variable(0., trainable=False, name="val_loss_unsup")
+    val_mrr_var = tf.Variable(0., trainable=False, name="val_mrr")
     with tf.name_scope("train"):
         summary_train_loss_sup = tf.summary.scalar('supervised loss', model.loss_sup)
         summary_train_loss_unsup = tf.summary.scalar('unsupervised loss', model.loss_unsup)
@@ -395,9 +399,9 @@ def train(train_data, test_data=None):
             summary_train_loss_unsup,
             summary_train_mrr])
     with tf.name_scope("val"):
-        summary_val_loss_sup = tf.summary.scalar('supervised loss', model.loss_sup)
-        summary_val_loss_unsup = tf.summary.scalar('unsupervised loss', model.loss_unsup)
-        summary_val_mrr = tf.summary.scalar('mrr', model.mrr)
+        summary_val_loss_sup = tf.summary.scalar('supervised loss', val_loss_sup)
+        summary_val_loss_unsup = tf.summary.scalar('unsupervised loss', val_loss_unsup)
+        summary_val_mrr = tf.summary.scalar('mrr', val_mrr_var)
         summary_val_acc = tf.summary.scalar('accuracy', model.accuracy_read_val) # only read the already computed validation accuracy
         summary_val_f1 = tf.summary.scalar('f1 score', model.f1_read_val) # only read the already computed validation f1 score
         summary_val_confusion = tf.summary.image('confusion',
@@ -454,24 +458,20 @@ def train(train_data, test_data=None):
             # Training step
             t = time.time()
             if supervised:
-                summary, _, train_cost, train_ranks, _, train_mrr, preds, confusion = sess.run([
+                summary, _, train_cost, train_mrr, preds, confusion = sess.run([
                     summary_train_sup,
                     optimizer, # otimization operation
                     loss, # compute current loss
-                    model.ranks,
-                    model.aff_all,
                     model.mrr,
                     model.preds, # compute predictions for inputs
                     model.confusion],
                     feed_dict=feed_dict
                 )
             else:
-                summary, _, train_cost, train_ranks, _, train_mrr, preds, confusion = sess.run([
+                summary, _, train_cost, train_mrr, preds, confusion = sess.run([
                     summary_train_unsup,
                     optimizer, # otimization operation
                     loss, # compute current loss
-                    model.ranks,
-                    model.aff_all,
                     model.mrr,
                     model.preds, # compute predictions for inputs
                     model.confusion_read], # only read confusion matrix for unsupervised iterations
@@ -496,6 +496,12 @@ def train(train_data, test_data=None):
                         supervised=supervised)
 
                 # log validation summary
+                if val_cost_sup is not None:
+                    sess.run(val_loss_sup.assign(val_cost_sup))
+                if val_cost_unsup is not None:
+                    sess.run(val_loss_unsup.assign(val_cost_unsup))
+                if val_cost_unsup is not None:
+                    sess.run(val_mrr_var.assign(val_mrr))
                 summary_val_out = sess.run(summary_val, feed_dict=feed_dict)
                 summary_writer.add_summary(summary_val_out, total_steps)
 
@@ -551,6 +557,12 @@ def train(train_data, test_data=None):
     val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, val_confusion, duration = incremental_evaluate(sess, model, minibatch, FLAGS.batch_size)
 
     # log final results
+    if val_cost_sup is not None:
+        sess.run(val_loss_sup.assign(val_cost_sup))
+    if val_cost_unsup is not None:
+        sess.run(val_loss_unsup.assign(val_cost_unsup))
+    if val_cost_unsup is not None:
+        sess.run(val_mrr_var.assign(val_mrr))
     summary_val_out = sess.run(summary_val, feed_dict=feed_dict)
     summary_writer.add_summary(summary_val_out, total_steps)
 
