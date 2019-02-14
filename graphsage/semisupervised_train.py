@@ -581,6 +581,9 @@ def train(train_data, test_data=None):
         fp.write("supervised_loss={:.5f}, unsupervised_loss={:.5f}, mrr={:.5f}, accuracy={:.5f}, f1-score={:.5f}, evaluation_time={:.5f}".
             format(val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, duration))
 
+    with open(log_dir + "command.txt", "w") as fp:
+        fp.write(str(FLAGS.flag_values_dict()))
+
     # TODO: Perform evaluation on test set
 
     if FLAGS.save_embeddings:
