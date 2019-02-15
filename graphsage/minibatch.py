@@ -340,10 +340,11 @@ class SupervisedEdgeMinibatchIterator(object):
     max_degree -- maximum size of the downsampled adjacency lists
     n2v_retrain -- signals that the iterator is being used to add new embeddings to a n2v model
     fixed_n2v -- signals that the iterator is being used to retrain n2v with only existing nodes as context
+    complete_validation -- if true the validation graph contains train nodes as well
     """
     def __init__(self, G, id2idx, placeholders, label_map, num_classes,
         context_pairs=None, batch_size=100, max_degree=25, n2v_retrain=False,
-        fixed_n2v=False, **kwargs):
+        fixed_n2v=False, complete_validation=True, **kwargs):
 
         self.G = G
         self.nodes = G.nodes()
@@ -385,9 +386,13 @@ class SupervisedEdgeMinibatchIterator(object):
         print("Unexpected missing nodes:", missing)
         self.train_edges_sup = [edge for edge in self.train_edges if G.node[edge[0]]['labeled']]
         self.train_edges_unsup = [edge for edge in self.train_edges if not G.node[edge[0]]['labeled']]
-        self.val_edges = [e for e in G.edges() if e[0] in test_nodes]
-        # Put the validation nodes always as first element (DOES MESS UP DIRECTED GRAPHS!)
-        self.val_edges.extend([(e[1], e[0]) for e in G.edges() if e[1] in test_nodes])
+        # if complete_validation is true, the validation graph contains train nodes as well
+        if complete_validation:
+            self.val_edges = G.edges()
+        else:
+            self.val_edges = [e for e in G.edges() if e[0] in test_nodes]
+            # Put the validation nodes always as first element (DOES MESS UP DIRECTED GRAPHS!)
+            self.val_edges.extend([(e[1], e[0]) for e in G.edges() if e[1] in test_nodes])
         self.val_edges_sup = [edge for edge in self.val_edges if G.node[edge[0]]['labeled']]
         self.val_edges_unsup = [edge for edge in self.val_edges if not G.node[edge[0]]['labeled']]
         self.val_set_size = len(self.val_edges)

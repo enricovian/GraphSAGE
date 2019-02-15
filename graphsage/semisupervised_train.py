@@ -63,6 +63,7 @@ flags.DEFINE_boolean('save_embeddings', True, 'whether to save embeddings for al
 flags.DEFINE_string('base_log_dir', '.', 'base directory for logging and saving embeddings')
 flags.DEFINE_integer('validate_iter', 5000, "how often to run a validation minibatch.")
 flags.DEFINE_integer('validate_batch_size', 256, "how many nodes per validation sample.")
+flags.DEFINE_boolean('complete_val', True, "if true the validation graph will contain train nodes as well.")
 flags.DEFINE_integer('gpu', 1, "which gpu to use.")
 flags.DEFINE_integer('print_every', 5, "How often to print training info.")
 flags.DEFINE_integer('max_total_steps', 10**10, "Maximum total number of iterations")
@@ -253,7 +254,8 @@ def train(train_data, test_data=None):
             num_classes,
             batch_size=FLAGS.batch_size,
             max_degree=FLAGS.max_degree,
-            context_pairs=context_pairs)
+            context_pairs=context_pairs,
+            complete_validation=FLAGS.complete_val)
     adj_info_ph = tf.placeholder(tf.int32, shape=minibatch.adj.shape)
     adj_info = tf.Variable(adj_info_ph, trainable=False, name="adj_info")
     label_adj_info_ph = tf.placeholder(tf.int32, shape=minibatch.label_adj.shape)
