@@ -176,6 +176,7 @@ def incremental_evaluate(sess, model, minibatch_iter, size):
             [model.loss_sup, model.accuracy_val, model.f1_val, model.preds, model.confusion_val], feed_dict=feed_dict_val)
         val_losses_sup.append(loss_sup)
     finished = False
+    iter_num=0
     while not finished:
         feed_dict_val, _, finished, _ = minibatch_iter.incremental_val_feed_dict(size, iter_num)
         iter_num += 1
