@@ -17,6 +17,7 @@ minor = version_info[1]
 assert (major <= 1) and (minor <= 11), "networkx major version > 1.11"
 
 DATA_SPLIT = [.75,.25] # ratio for train and validation set (the remaining is test set)
+TRAIN_LABELS = 0.5 # ratio for training labels to consider, if 1 all labels are kept
 SEED = 123
 
 
@@ -98,11 +99,22 @@ if __name__ == '__main__':
     print("Splitting node set..")
     perm = np.random.permutation(range(id))
     train_idx = perm[:(int(id*DATA_SPLIT[0]))]
+    train_perm = np.random.permutation(train_idx)
+    unlabeled_train_idx = train_perm[:(int(len(train_perm)*(1.-TRAIN_LABELS)))]
     val_idx = perm[(int(id*DATA_SPLIT[0])+1):(int(id*(DATA_SPLIT[0]+DATA_SPLIT[1])))]
     test_idx = perm[(int(id*(DATA_SPLIT[0]+DATA_SPLIT[1]))+1):]
     print("{:d} train nodes".format(len(train_idx)))
     print("{:d} val nodes".format(len(val_idx)))
     print("{:d} test nodes".format(len(test_idx)))
+
+    # remove train labels according to the TRAIN_LABELS flag
+    removed=0
+    for node_name, node_id in id_map.items():
+        if node_id in unlabeled_train_idx:
+            del oh_labels[node_id]
+            removed+=1
+
+    print("Removed {:d} training labels. Training set is {:.2f}% labeled".format(removed,100*TRAIN_LABELS))
 
     # Construct networkx graph
     G = nx.empty_graph()
