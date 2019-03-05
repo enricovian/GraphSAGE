@@ -576,13 +576,14 @@ def train(train_data, test_data=None):
           "\tmrr=", "{:.5f}".format(val_mrr), "\n",
           "\taccuracy=", "{:.5f}".format(val_acc), "\n",
           "\tf1-score=", "{:.5f}".format(val_f1), "\n",
-          "\tevaluation time=", "{:.5f}".format(duration))
+          "\tevaluation time=", "{:.5f}".format(duration), "\n",
+          "\taverage_training_time=", "{:.5f}".format(avg_time))
     if FLAGS.print_confusion:
         print("confusion= \n{:s}".format(val_confusion))
     # write an output file
     with open(log_dir + "val_stats.txt", "w") as fp:
-        fp.write("supervised_loss={:.5f}, unsupervised_loss={:.5f}, mrr={:.5f}, accuracy={:.5f}, f1-score={:.5f}, evaluation_time={:.5f}".
-            format(val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, duration))
+        fp.write("supervised_loss={:.5f}, unsupervised_loss={:.5f}, mrr={:.5f}, accuracy={:.5f}, f1-score={:.5f}, evaluation_time={:.5f}, iteration_training_time={:.5f}".
+            format(val_cost_sup, val_cost_unsup, val_mrr, val_acc, val_f1, duration,avg_time))
 
     with open(log_dir + "command.txt", "w") as fp:
         fp.write(str(FLAGS.flag_values_dict()))
