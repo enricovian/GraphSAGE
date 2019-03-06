@@ -201,6 +201,7 @@ def construct_placeholders(num_classes):
         'dropout': tf.placeholder_with_default(0., shape=(), name='dropout'),
         'batch_size' : tf.placeholder(tf.int32, name='batch_size'),
         'supervised' : tf.placeholder(tf.bool, name='supervised'),
+        'training' : tf.placeholder(tf.bool, name='training'),
         'pos_class' : tf.placeholder_with_default(1, shape=(), name='pos_class')
     }
     return placeholders
@@ -264,6 +265,7 @@ def train(train_data, test_data=None):
 
 
     # Neighbors sampler
+    val_sampler = UniformNeighborSampler(adj_info)
     if FLAGS.sampler == 'uniform':
         sampler = UniformNeighborSampler(adj_info)
     elif FLAGS.sampler == 'label_assisted':
@@ -282,6 +284,16 @@ def train(train_data, test_data=None):
                            SAGEInfo("node", sampler, FLAGS.samples_2, FLAGS.dim_2)]
         else:
             layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1)]
+        if FLAGS.samples_3 != 0:
+            val_layer_infos = [SAGEInfo("node", val_sampler, FLAGS.samples_1, FLAGS.dim_1),
+                               SAGEInfo("node", val_sampler, FLAGS.samples_2, FLAGS.dim_2),
+                               SAGEInfo("node", val_sampler, FLAGS.samples_3, FLAGS.dim_2)]
+        elif FLAGS.samples_2 != 0:
+            val_layer_infos = [SAGEInfo("node", val_sampler, FLAGS.samples_1, FLAGS.dim_1),
+                               SAGEInfo("node", val_sampler, FLAGS.samples_2, FLAGS.dim_2)]
+        else:
+            val_layer_infos = [SAGEInfo("node", val_sampler, FLAGS.samples_1, FLAGS.dim_1)]
+
         # Create model
         model = SemiSupervisedGraphsage(
             num_classes,
@@ -290,6 +302,7 @@ def train(train_data, test_data=None):
             adj_info,
             minibatch.deg,
             layer_infos,
+            val_layer_infos,
             aggregator_type="mean",
             model_size=FLAGS.model_size,
             sigmoid_loss = FLAGS.sigmoid,
@@ -300,6 +313,9 @@ def train(train_data, test_data=None):
         # Layers definitions
         layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, 2*FLAGS.dim_1),
                        SAGEInfo("node", sampler, FLAGS.samples_2, 2*FLAGS.dim_2)]
+        val_layer_infos = [SAGEInfo("node", val_sampler, FLAGS.samples_1, 2*FLAGS.dim_1),
+                           SAGEInfo("node", val_sampler, FLAGS.samples_2, 2*FLAGS.dim_2)]
+
         # Create model
         model = SemiSupervisedGraphsage(
             num_classes,
@@ -308,6 +324,7 @@ def train(train_data, test_data=None):
             adj_info,
             minibatch.deg,
             layer_infos,
+            val_layer_infos,
             aggregator_type="gcn",
             model_size=FLAGS.model_size,
             sigmoid_loss = FLAGS.sigmoid,
@@ -319,6 +336,9 @@ def train(train_data, test_data=None):
         # Layers definitions
         layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1),
                        SAGEInfo("node", sampler, FLAGS.samples_2, FLAGS.dim_2)]
+        val_layer_infos = [SAGEInfo("node", val_sampler, FLAGS.samples_1, FLAGS.dim_1),
+                           SAGEInfo("node", val_sampler, FLAGS.samples_2, FLAGS.dim_2)]
+
         # Create model
         model = SemiSupervisedGraphsage(
             num_classes,
@@ -327,6 +347,7 @@ def train(train_data, test_data=None):
             adj_info,
             minibatch.deg,
             layer_infos,
+            val_layer_infos,
             aggregator_type="seq",
             model_size=FLAGS.model_size,
             sigmoid_loss = FLAGS.sigmoid,
@@ -337,6 +358,9 @@ def train(train_data, test_data=None):
         # Layers definitions
         layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1),
                        SAGEInfo("node", sampler, FLAGS.samples_2, FLAGS.dim_2)]
+        val_layer_infos = [SAGEInfo("node", val_sampler, FLAGS.samples_1, FLAGS.dim_1),
+                           SAGEInfo("node", val_sampler, FLAGS.samples_2, FLAGS.dim_2)]
+
         # Create model
         model = SemiSupervisedGraphsage(
             num_classes,
@@ -345,6 +369,7 @@ def train(train_data, test_data=None):
             adj_info,
             minibatch.deg,
             layer_infos,
+            val_layer_infos,
             aggregator_type="maxpool",
             model_size=FLAGS.model_size,
             sigmoid_loss = FLAGS.sigmoid,
@@ -355,6 +380,9 @@ def train(train_data, test_data=None):
         # Layers definitions
         layer_infos = [SAGEInfo("node", sampler, FLAGS.samples_1, FLAGS.dim_1),
                        SAGEInfo("node", sampler, FLAGS.samples_2, FLAGS.dim_2)]
+        val_layer_infos = [SAGEInfo("node", val_sampler, FLAGS.samples_1, FLAGS.dim_1),
+                           SAGEInfo("node", val_sampler, FLAGS.samples_2, FLAGS.dim_2)]
+
         # Create model
         model = SemiSupervisedGraphsage(
             num_classes,
@@ -363,6 +391,7 @@ def train(train_data, test_data=None):
             adj_info,
             minibatch.deg,
             layer_infos,
+            val_layer_infos,
             aggregator_type="meanpool",
             model_size=FLAGS.model_size,
             sigmoid_loss = FLAGS.sigmoid,

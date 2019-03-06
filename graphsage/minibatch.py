@@ -521,9 +521,10 @@ class SupervisedEdgeMinibatchIterator(object):
     def end_unsup(self):
         return self.batch_num_unsup * self.batch_size >= len(self.train_edges_unsup)
 
-    def batch_feed_dict(self, batch_edges, duplicates=True):
+    def batch_feed_dict(self, batch_edges, duplicates=True, training=True):
         """ Construct the feed_dict for a batch of edges.
             The duplicate flag determines whether to consider the same node more than once.
+            The training flag determines whether the itaration is training or validation.
         """
         batch1 = []
         batch2 = []
@@ -548,6 +549,7 @@ class SupervisedEdgeMinibatchIterator(object):
         feed_dict.update({self.placeholders['batch']: batch1})
         feed_dict.update({self.placeholders['batch_pos']: batch2})
         feed_dict.update({self.placeholders['labels']: labels})
+        feed_dict.update({self.placeholders['training']: training})
 
         return feed_dict, labels
 
@@ -578,35 +580,35 @@ class SupervisedEdgeMinibatchIterator(object):
     def val_feed_dict(self, size=None):
         edge_list = self.val_edges
         if size is None:
-            return self.batch_feed_dict(edge_list)
+            return self.batch_feed_dict(edge_list, training=False)
         else:
             ind = np.random.permutation(len(edge_list))
             val_edges = [edge_list[i] for i in ind[:min(size, len(ind))]]
-            return self.batch_feed_dict(val_edges)
+            return self.batch_feed_dict(val_edges, training=False)
 
     def val_feed_dict_sup(self, size=None):
         edge_list = self.val_edges_sup
         if size is None:
-            return self.batch_feed_dict(edge_list)
+            return self.batch_feed_dict(edge_list, training=False)
         else:
             ind = np.random.permutation(len(edge_list))
             val_edges = [edge_list[i] for i in ind[:min(size, len(ind))]]
-            return self.batch_feed_dict(val_edges)
+            return self.batch_feed_dict(val_edges, training=False)
 
     def val_feed_dict_unsup(self, size=None):
         edge_list = self.val_edges_unsup
         if size is None:
-            return self.batch_feed_dict(edge_list)
+            return self.batch_feed_dict(edge_list, training=False)
         else:
             ind = np.random.permutation(len(edge_list))
             val_edges = [edge_list[i] for i in ind[:min(size, len(ind))]]
-            return self.batch_feed_dict(val_edges)
+            return self.batch_feed_dict(val_edges, training=False)
 
     def incremental_val_feed_dict(self, size, iter_num):
         edge_list = self.val_edges
         val_edges = edge_list[iter_num*size:min((iter_num+1)*size,
             len(edge_list))]
-        feed_dict, labels = self.batch_feed_dict(val_edges)
+        feed_dict, labels = self.batch_feed_dict(val_edges, training=False)
         return feed_dict, labels, (iter_num+1)*size >= len(self.val_edges), val_edges
 
 
@@ -619,14 +621,14 @@ class SupervisedEdgeMinibatchIterator(object):
         edge_list = self.val_edges_sup
         val_edges = edge_list[iter_num*size:min((iter_num+1)*size,
             len(edge_list))]
-        feed_dict, labels = self.batch_feed_dict(val_edges, duplicates=duplicates)
+        feed_dict, labels = self.batch_feed_dict(val_edges, duplicates=duplicates, training=False)
         return feed_dict, labels, (iter_num+1)*size >= len(self.val_edges_sup), val_edges
 
     def incremental_val_feed_dict_unsup(self, size, iter_num):
         edge_list = self.val_edges_unsup
         val_edges = edge_list[iter_num*size:min((iter_num+1)*size,
             len(edge_list))]
-        feed_dict, labels = self.batch_feed_dict(val_edges)
+        feed_dict, labels = self.batch_feed_dict(val_edges, training=False)
         return feed_dict, labels, (iter_num+1)*size >= len(self.val_edges_unsup), val_edges
 
     def incremental_embed_feed_dict(self, size, iter_num):
@@ -636,7 +638,7 @@ class SupervisedEdgeMinibatchIterator(object):
         val_nodes = node_list[iter_num*size:min((iter_num+1)*size,
             len(node_list))]
         val_edges = [(n,n) for n in val_nodes]
-        feed_dict, labels = self.batch_feed_dict(val_edges)
+        feed_dict, labels = self.batch_feed_dict(val_edges, training=False)
         return feed_dict, labels, (iter_num+1)*size >= len(node_list), val_edges
 
     def label_val(self):

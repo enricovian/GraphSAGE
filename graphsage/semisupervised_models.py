@@ -16,7 +16,7 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
     """
 
     def __init__(self, num_classes, placeholders, features, adj, degrees,
-            layer_infos, concat=True, aggregator_type="mean",
+            layer_infos, val_layer_infos, concat=True, aggregator_type="mean",
             model_size="small", sigmoid_loss=False, identity_dim=0, **kwargs):
         '''
         Args:
@@ -73,7 +73,13 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
         self.dims.extend([layer_infos[i].output_dim for i in range(len(layer_infos))])
         self.batch_size = placeholders["batch_size"]
         self.placeholders = placeholders
-        self.layer_infos = layer_infos
+        self.train_layer_infos = layer_infos
+        self.val_layer_infos = val_layer_infos
+        # layers are different because training may have different samplers,
+        # while for valdation the neighbors sampler must be uniform
+        self.layer_infos = tf.cond(self.placeholders['training'],
+                                   self.train_layer_infos,
+                                   self.val_layer_infos)
 
         self.sup_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
         self.unsup_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
