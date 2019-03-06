@@ -251,7 +251,7 @@ class SampleAndAggregate(GeneralizedModel):
 
         self.build()
 
-    def sample(self, inputs, layer_infos, batch_size=None):
+    def sample(self, inputs, layer_infos, val_layer_infos, batch_size=None, training=True):
         """ Sample neighbors to be the supportive fields for multi-layer convolutions.
 
         Args:
@@ -268,8 +268,9 @@ class SampleAndAggregate(GeneralizedModel):
         for k in range(len(layer_infos)):
             t = len(layer_infos) - k - 1
             support_size *= layer_infos[t].num_samples
-            sampler = layer_infos[t].neigh_sampler
-            node = sampler((samples[k], layer_infos[t].num_samples))
+            node = tf.cond(training,
+                           lambda: layer_infos[t].neigh_sampler((samples[k], layer_infos[t].num_samples)),
+                           lambda: val_layer_infos[t].neigh_sampler((samples[k], val_layer_infos[t].num_samples)))
             samples.append(tf.reshape(node, [support_size * batch_size,]))
             support_sizes.append(support_size)
         return samples, support_sizes

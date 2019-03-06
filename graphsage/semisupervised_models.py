@@ -73,13 +73,10 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
         self.dims.extend([layer_infos[i].output_dim for i in range(len(layer_infos))])
         self.batch_size = placeholders["batch_size"]
         self.placeholders = placeholders
-        self.train_layer_infos = layer_infos
-        self.val_layer_infos = val_layer_infos
         # layers are different because training may have different samplers,
-        # while for valdation the neighbors sampler must be uniform
-        f1 = lambda: self.train_layer_infos
-        f2 = lambda: self.val_layer_infos
-        self.layer_infos = tf.case([(self.placeholders['training'], f1)], default=f2)
+        # while for validation the neighbors sampler must be uniform
+        self.train_layer_infos = self.layer_infos = layer_infos
+        self.val_layer_infos = val_layer_infos
 
         self.sup_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
         self.unsup_optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
@@ -104,19 +101,21 @@ class SemiSupervisedGraphsage(models.SampleAndAggregate):
         # sample neighbors and perform aggregation (for every layer defined in layer_infos)
         num_samples = [layer_info.num_samples for layer_info in self.layer_infos]
 
-        samples, support_sizes = self.sample(self.inputs, self.layer_infos) # TODO: Look at the sampler
+        samples, support_sizes = self.sample(self.inputs, self.train_layer_infos,
+            self.val_layer_infos, training=self.placeholders['training'])
         self.outputs, self.aggregators = self.aggregate(samples, [self.features], self.dims, num_samples,
             support_sizes, concat=self.concat, model_size=self.model_size)
         self.outputs = tf.nn.l2_normalize(self.outputs, 1) # normalization
 
-        samples_pos, support_sizes_pos = self.sample(self.inputs_pos, self.layer_infos)
+        samples_pos, support_sizes_pos = self.sample(self.inputs_pos, self.train_layer_infos,
+            self.val_layer_infos, training=self.placeholders['training'])
         self.outputs_pos, _ = self.aggregate(samples_pos, [self.features], self.dims, num_samples,
             support_sizes_pos, aggregators=self.aggregators, concat=self.concat,
             model_size=self.model_size)
         self.outputs_pos = tf.nn.l2_normalize(self.outputs_pos, 1) # normalization
 
-        samples_neg, support_sizes_neg = self.sample(self.neg_samples, self.layer_infos,
-            FLAGS.neg_sample_size)
+        samples_neg, support_sizes_neg = self.sample(self.neg_samples, self.train_layer_infos,
+            self.val_layer_infos, FLAGS.neg_sample_size, training=self.placeholders['training'])
         self.outputs_neg, _ = self.aggregate(samples_neg, [self.features], self.dims, num_samples,
             support_sizes_neg, batch_size=FLAGS.neg_sample_size, aggregators=self.aggregators,
             concat=self.concat, model_size=self.model_size)
