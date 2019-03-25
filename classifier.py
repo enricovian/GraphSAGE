@@ -7,16 +7,14 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 
 TRAIN_RATIO = 0.7
-NUM_CLASSES = 6
+NUM_CLASSES = 3
 
 if __name__ == "__main__":
     embeds_dir = sys.argv[1]
     prefix = sys.argv[2]
 
-    id_map = json.load(open(prefix + "-id_map.json"))
-    id_map = {int(k):int(v) for k,v in id_map.items()}
     label_map = json.load(open(prefix + "-class_map.json"))
-    label_map = {id_map[int(k)]:np.argmax(v) for k,v in label_map.items()} # label is a one-hot vector
+    label_map = {int(k):np.argmax(v) for k,v in label_map.items()} # label is a one-hot vector
 
     embeds = np.load(embeds_dir + "val.npy")
     with open(os.path.join(embeds_dir, "val.txt")) as f:

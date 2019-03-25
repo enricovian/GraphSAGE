@@ -123,7 +123,7 @@ if __name__ == '__main__':
     removed=0
     for id in ids:
         if id in unlabeled_train_idx:
-            del oh_labels[id]
+            oh_labels[id] = np.zeros(len(oh_labels[id]), int).tolist()
             removed+=1
     print("Removed {:d} training labels. Training set is {:.2f}% labeled".format(removed,100*TRAIN_LABELS))
 
